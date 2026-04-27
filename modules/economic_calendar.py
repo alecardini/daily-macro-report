@@ -488,6 +488,15 @@ def fetch_forex_factory_multiday(days=3):
         except Exception as e:
             print(f"[Calendar] Errore parsing {url}: {e}")
 
+    # Riordina cronologicamente (il weekend precompilation può inserire giorni fuori ordine)
+    def _day_key_to_date(key):
+        try:
+            from datetime import datetime as _dt
+            return _dt.strptime(key, "%A %d %B").replace(year=today_rome.year)
+        except Exception:
+            return today_rome.replace(tzinfo=None)
+
+    result = dict(sorted(result.items(), key=lambda x: _day_key_to_date(x[0])))
     return result
 
 

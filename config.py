@@ -168,4 +168,5 @@ CALENDAR_WHITELIST = [
     "30-y Bond Auction",       # 30-Year Bond Auction (USD) — aggiunto 08/04/2026
     "German Final CPI",        # German Final CPI m/m (EUR) — aggiunto 08/04/2026
     "Existing Home Sales",     # USD — aggiunto 13/04/2026
+    "Durable Goods Orders",    # USD — aggiunto 17/04/2026
 ]
