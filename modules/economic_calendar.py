@@ -20,7 +20,7 @@ _RATE_DECISION_RENAME = {
     "official cash rate":          "RBNZ Interest Rate Decision",       # NZD
     "federal funds rate":          "Fed Interest Rate Decision",         # USD
     "interest rate decision":      None,  # gestito per valuta sotto
-    "main refinancing rate":       "ECB Interest Rate Decision",         # EUR
+    "main refinancing rate":       "ECB Rates Decision (MRO + DFR)",     # EUR
     "deposit facility rate":       "ECB Interest Rate Decision",         # EUR
     "refinancing rate":            "ECB Interest Rate Decision",         # EUR
     "official bank rate":          "BoE Interest Rate Decision",         # GBP
@@ -55,14 +55,23 @@ _RATE_BY_CURRENCY = {
 }
 
 
+# Rename generali (match esatto case-insensitive sul titolo completo)
+_GENERAL_RENAMES = {
+    "unemployment claims": "Initial Jobless Claims",
+}
+
+
 def _maybe_rename_rate_event(title: str, currency: str) -> str:
-    """Rinomina eventi rate decision con nome banca centrale leggibile."""
+    """Rinomina eventi: rate decision con nome banca centrale + rename generali."""
     title_lower = title.lower()
+    # Rename generali (match esatto)
+    if title_lower in _GENERAL_RENAMES:
+        return _GENERAL_RENAMES[title_lower]
+    # Rate decision rename
     for pattern, new_name in _RATE_DECISION_RENAME.items():
         if pattern in title_lower:
             if new_name is not None:
                 return new_name
-            # Ambiguo → usa valuta
             return _RATE_BY_CURRENCY.get(currency, title)
     return title
 
@@ -342,11 +351,14 @@ def _parse_ff_json(data, target_dates):
             currency = event.get("country", "—")
             flag, _ = CURRENCY_FLAGS.get(currency, ("", currency))
 
+            raw_title = event.get("title", "—")
+            renamed   = _maybe_rename_rate_event(raw_title, currency)
+
             result[day_key].append({
                 "time": event_dt_rome.strftime("%H:%M"),
                 "currency": currency,
                 "flag": flag,
-                "event": _maybe_rename_rate_event(event.get("title", "—"), currency),
+                "event": renamed,
                 "impact": impact_label,
                 "forecast": event.get("forecast", "—") or "—",
                 "previous": event.get("previous", "—") or "—",
@@ -354,6 +366,8 @@ def _parse_ff_json(data, target_dates):
                 "actual_overdue": actual_overdue,
                 "source": "Forex Factory",
             })
+
+
         except Exception:
             continue
     for day in result:

@@ -169,4 +169,6 @@ CALENDAR_WHITELIST = [
     "German Final CPI",        # German Final CPI m/m (EUR) — aggiunto 08/04/2026
     "Existing Home Sales",     # USD — aggiunto 13/04/2026
     "Durable Goods Orders",    # USD — aggiunto 17/04/2026
+    "Manufacturing PMI",       # CNY (+ altri Manufacturing PMI Low) — aggiunto 28/04/2026
+    "Chicago PMI",             # USD — aggiunto 28/04/2026
 ]
