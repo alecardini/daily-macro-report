@@ -57,7 +57,8 @@ _RATE_BY_CURRENCY = {
 
 # Rename generali (match esatto case-insensitive sul titolo completo)
 _GENERAL_RENAMES = {
-    "unemployment claims": "Initial Jobless Claims",
+    "unemployment claims":        "Initial Jobless Claims",
+    "non-farm employment change": "Nonfarm Payrolls",
 }
 
 
