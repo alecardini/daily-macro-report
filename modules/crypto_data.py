@@ -11,7 +11,7 @@ Crypto Data Module
 import requests
 import yfinance as yf
 from bs4 import BeautifulSoup
-import sys, os
+import sys, os, json, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 from datetime import datetime, timezone
@@ -134,90 +134,132 @@ def _parse_farside_flow(text):
         return 0.0
 
 
+_FARSIDE_CACHE_TTL = 1800  # 30 minuti
+
+def _farside_cache_path(asset_name):
+    return f"/tmp/farside_{asset_name.lower()}_cache.json"
+
+def _load_farside_cache(asset_name):
+    path = _farside_cache_path(asset_name)
+    try:
+        with open(path) as f:
+            cached = json.load(f)
+        age = time.time() - cached.get("_ts", 0)
+        if age < _FARSIDE_CACHE_TTL:
+            print(f"[Crypto] Farside {asset_name}: cache fresca ({int(age)}s fa)")
+            return cached.get("data"), False  # (data, is_stale)
+        return cached.get("data"), True  # stale but available as fallback
+    except Exception:
+        return None, True
+
+def _save_farside_cache(asset_name, data):
+    path = _farside_cache_path(asset_name)
+    try:
+        with open(path, "w") as f:
+            json.dump({"_ts": time.time(), "data": data}, f)
+    except Exception:
+        pass
+
 def _fetch_farside(url, asset_name):
     """
     Scrape farside.co.uk ETF flow table.
+    Cache su disco 30min + retry con backoff su errori HTTP.
     Returns dict with: last_date, daily_total, by_etf, cumulative_total
     """
-    try:
-        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
-        resp = requests.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
+    cached_data, is_stale = _load_farside_cache(asset_name)
+    if cached_data and not is_stale:
+        return cached_data
 
-        tables = soup.find_all("table")
-        main_table = None
-        for t in tables:
-            rows = t.find_all("tr")
-            if len(rows) > 10:
-                main_table = t
-                break
+    _HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+    }
 
-        if not main_table:
-            return None
+    for attempt in range(3):
+        if attempt > 0:
+            time.sleep(4 * (2 ** (attempt - 1)))  # 4s, 8s
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=20)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
 
-        rows = main_table.find_all("tr")
-        headers_row = [th.get_text(strip=True) for th in rows[0].find_all(["th", "td"])]
+            tables = soup.find_all("table")
+            main_table = None
+            for t in tables:
+                rows = t.find_all("tr")
+                if len(rows) > 10:
+                    main_table = t
+                    break
 
-        # Find data rows (skip header, Total, Average, Maximum, Minimum)
-        skip_labels = {"Total", "Average", "Maximum", "Minimum", ""}
-        data_rows = []
-        for row in rows[1:]:
-            cells = [td.get_text(strip=True) for td in row.find_all(["td", "th"])]
-            if cells and cells[0] and cells[0] not in skip_labels and len(cells) >= 3:
-                data_rows.append(cells)
+            if not main_table:
+                raise ValueError("No data table found")
 
-        if not data_rows:
-            return None
+            rows = main_table.find_all("tr")
+            headers_row = [th.get_text(strip=True) for th in rows[0].find_all(["th", "td"])]
 
-        # Find most recent row with actual flow data (data released with 1-day lag)
-        last_row = None
-        for row in reversed(data_rows):
-            # Check if any cell beyond the date column has a non-zero value
-            vals = [_parse_farside_flow(c) for c in row[1:] if c and c not in ("-", "")]
-            if any(v != 0 for v in vals):
-                last_row = row
-                break
-        if last_row is None:
-            last_row = data_rows[-1]  # fallback if all rows are empty
-        last_date = last_row[0]
+            skip_labels = {"Total", "Average", "Maximum", "Minimum", ""}
+            data_rows = []
+            for row in rows[1:]:
+                cells = [td.get_text(strip=True) for td in row.find_all(["td", "th"])]
+                if cells and cells[0] and cells[0] not in skip_labels and len(cells) >= 3:
+                    data_rows.append(cells)
 
-        # Parse individual ETF flows
-        by_etf = {}
-        total_col = None
-        for i, col_name in enumerate(headers_row):
-            if col_name.upper() == "TOTAL":
-                total_col = i
-            elif col_name not in ("Date", ""):
-                if i < len(last_row):
-                    val = _parse_farside_flow(last_row[i])
-                    by_etf[col_name] = val
+            if not data_rows:
+                raise ValueError("No data rows found")
 
-        daily_total = _parse_farside_flow(last_row[total_col]) if total_col and total_col < len(last_row) else sum(by_etf.values())
+            last_row = None
+            for row in reversed(data_rows):
+                vals = [_parse_farside_flow(c) for c in row[1:] if c and c not in ("-", "")]
+                if any(v != 0 for v in vals):
+                    last_row = row
+                    break
+            if last_row is None:
+                last_row = data_rows[-1]
+            last_date = last_row[0]
 
-        # Cumulative total from "Total" row
-        cum_total = None
-        for row in rows[1:]:
-            cells = [td.get_text(strip=True) for td in row.find_all(["td", "th"])]
-            if cells and cells[0] == "Total" and total_col and total_col < len(cells):
-                cum_total = _parse_farside_flow(cells[total_col])
-                break
+            by_etf = {}
+            total_col = None
+            for i, col_name in enumerate(headers_row):
+                if col_name.upper() == "TOTAL":
+                    total_col = i
+                elif col_name not in ("Date", ""):
+                    if i < len(last_row):
+                        val = _parse_farside_flow(last_row[i])
+                        by_etf[col_name] = val
 
-        return {
-            "last_date": last_date,
-            "daily_total_m": daily_total,           # in millions USD
-            "daily_total_fmt": fmt_large(daily_total * 1e6),
-            "daily_total_raw": daily_total * 1e6,
-            "by_etf": by_etf,
-            "cumulative_total_m": cum_total,
-            "cumulative_fmt": fmt_large(cum_total * 1e6) if cum_total else "N/A",
-            "direction": "up" if daily_total > 0 else "down" if daily_total < 0 else "neutral",
-            "source": f"farside.co.uk — {asset_name} ETF Flows",
-        }
+            daily_total = _parse_farside_flow(last_row[total_col]) if total_col and total_col < len(last_row) else sum(by_etf.values())
 
-    except Exception as e:
-        print(f"[Crypto] Farside error ({asset_name}): {e}")
-        return None
+            cum_total = None
+            for row in rows[1:]:
+                cells = [td.get_text(strip=True) for td in row.find_all(["td", "th"])]
+                if cells and cells[0] == "Total" and total_col and total_col < len(cells):
+                    cum_total = _parse_farside_flow(cells[total_col])
+                    break
+
+            result = {
+                "last_date": last_date,
+                "daily_total_m": daily_total,
+                "daily_total_fmt": fmt_large(daily_total * 1e6),
+                "daily_total_raw": daily_total * 1e6,
+                "by_etf": by_etf,
+                "cumulative_total_m": cum_total,
+                "cumulative_fmt": fmt_large(cum_total * 1e6) if cum_total else "N/A",
+                "direction": "up" if daily_total > 0 else "down" if daily_total < 0 else "neutral",
+                "source": f"farside.co.uk — {asset_name} ETF Flows",
+            }
+            _save_farside_cache(asset_name, result)
+            return result
+
+        except Exception as e:
+            print(f"[Crypto] Farside {asset_name} tentativo {attempt+1}/3: {e}")
+
+    print(f"[Crypto] Farside {asset_name}: tutti i tentativi falliti, nessun dato disponibile")
+    return None
 
 
 def get_btc_etf_flows():
@@ -562,7 +604,9 @@ def get_crypto_fear_greed():
 def get_all_crypto_data():
     prices = get_crypto_prices()
     btc_etf = get_btc_etf_flows()
+    time.sleep(2)
     eth_etf = get_eth_etf_flows()
+    time.sleep(2)
     sol_etf = get_sol_etf_flows()
     liquidations = get_liquidations_and_oi()
     fear_greed = get_crypto_fear_greed()
