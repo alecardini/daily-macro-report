@@ -45,18 +45,26 @@ def get_deribit_pc_ratio(currency="BTC"):
         pc_oi = put_oi / call_oi if call_oi > 0 else None
 
         def interpret(ratio):
+            # Threshold istituzionali (Deribit Insights, Greeks.live, Flipster)
+            # Crypto baseline "neutro" è ~0.70, non 1.0 come in equity
             if ratio is None:
                 return "N/A", "neutral"
-            if ratio < 0.5:
-                return "Fortemente Bullish", "positive"
-            elif ratio < 0.7:
-                return "Bullish", "positive"
-            elif ratio < 0.9:
-                return "Neutro/Cauto", "neutral"
-            elif ratio < 1.2:
-                return "Bearish", "negative"
+            if ratio < 0.40:
+                return "⚠ Euforia Estrema", "warning"       # call frenzy — possibile top
+            elif ratio < 0.50:
+                return "Bullish / Call Dominance", "positive"
+            elif ratio < 0.65:
+                return "Moderatamente Bullish", "positive"   # range normale bull run Deribit
+            elif ratio < 0.75:
+                return "Neutro", "neutral"                   # baseline crypto-adjusted
+            elif ratio < 0.90:
+                return "Cauto / Hedge in Aumento", "neutral"
+            elif ratio < 1.00:
+                return "Bearish / Posizionamento Difensivo", "negative"
+            elif ratio < 1.20:
+                return "Paura Elevata", "negative"
             else:
-                return "Fortemente Bearish (possibile contrarian signal)", "negative"
+                return "⚠ Paura Estrema / Possibile Bottom", "warning"
 
         vol_label, vol_dir = interpret(pc_vol)
         oi_label, oi_dir = interpret(pc_oi)

@@ -191,7 +191,7 @@ def render_sentiment(sentiment, vix_data=None, sentiment_analysis=""):
                 <span class="aaii-val">{aaii.get('bearish_fmt','N/A')}</span>
             </div>
         </div>
-        <span class="source-tag">AAII — Rilevazione settimanale</span>
+        <span class="source-tag">AAII — Rilevazione settimanale{(' · ' + aaii['survey_date']) if aaii.get('survey_date') else ''}</span>
     </div>"""
 
     # VIX card
@@ -584,18 +584,21 @@ def render_pc_ratios(pc_data):
                 <span class="pc-interp">{oi_lbl}</span>
             </div>
             <div class="pc-scale">
-                <span class="positive">&lt;0.5 Bullish</span>
-                <span class="neutral-c">0.5–0.9 Neutro</span>
-                <span class="negative">&gt;1.0 Bearish</span>
+                <span class="warning">&lt;0.40 Euforia</span>
+                <span class="positive">0.40–0.65 Bullish</span>
+                <span class="neutral-c">0.65–0.75 Neutro</span>
+                <span class="negative">0.75–1.0 Difensivo</span>
+                <span class="warning">&gt;1.20 Paura Estrema</span>
             </div>
             <span class="source-tag">Deribit (public API)</span>
         </div>"""
 
     html += "</div>"
     html += """<div class="pc-note">
-        <strong>Come leggere:</strong> P/C alto = prevalgono puts (hedging al ribasso).
-        P/C basso = prevalgono calls (posizionamento rialzista).
-        Valori estremi = possibile segnale contrarian.
+        <strong>Come leggere:</strong> Indicatore contrarian — valori estremi segnalano potenziale inversione.
+        &lt;0.40 = euforia da call, possibile top. &gt;1.20 = panico da put, possibile bottom.
+        Il baseline "neutro" in crypto è ~0.70 (non 1.0 come in equity).
+        Volume P/C = sentiment intraday. OI P/C = posizionamento strutturale istituzionale.
     </div>"""
     return html
 
@@ -946,7 +949,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .etf-tag{{background:var(--bg3);border:1px solid var(--border);padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;color:var(--gold)}}
 
 /* UTILITIES */
-.positive{{color:var(--pos)}}.negative{{color:var(--neg)}}.neutral{{color:var(--neu)}}.neutral-c{{color:var(--neu)}}
+.positive{{color:var(--pos)}}.negative{{color:var(--neg)}}.neutral{{color:var(--neu)}}.neutral-c{{color:var(--neu)}}.warning{{color:#f39c12}}
 .source-tag{{display:block;color:var(--text3);font-size:8px;margin-top:8px;text-transform:uppercase;letter-spacing:1px}}
 .no-data{{color:var(--text3);padding:16px 0;font-style:italic}}
 

@@ -361,37 +361,43 @@ def get_aaii_sentiment():
         resp = requests.get(url, headers=headers, timeout=12)
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        # AAII table structure
-        rows = soup.select("table tr")
-        bullish, neutral, bearish = None, None, None
+        # AAII table: header row = [Reported Date, Bullish, Neutral, Bearish]
+        # Data rows: [date, bull%, neutral%, bear%]
+        table = soup.select_one("table")
+        rows = table.find_all("tr") if table else []
+        bullish, neutral, bearish, survey_date = None, None, None, None
 
-        for row in rows:
-            cells = [td.get_text(strip=True) for td in row.select("td")]
-            if len(cells) >= 2:
-                label = cells[0].lower()
-                if "bullish" in label:
-                    try:
-                        bullish = float(cells[1].replace("%", ""))
-                    except Exception:
-                        pass
-                elif "neutral" in label:
-                    try:
-                        neutral = float(cells[1].replace("%", ""))
-                    except Exception:
-                        pass
-                elif "bearish" in label:
-                    try:
-                        bearish = float(cells[1].replace("%", ""))
-                    except Exception:
-                        pass
+        if rows:
+            headers = [th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"])]
+            bull_col    = next((i for i, h in enumerate(headers) if "bullish" in h), None)
+            neutral_col = next((i for i, h in enumerate(headers) if "neutral" in h), None)
+            bear_col    = next((i for i, h in enumerate(headers) if "bearish" in h), None)
+            date_col    = next((i for i, h in enumerate(headers) if "date" in h), 0)
+
+            for row in rows[1:]:
+                cells = [td.get_text(strip=True) for td in row.find_all(["td", "th"])]
+                if len(cells) < 3:
+                    continue
+                try:
+                    if bull_col and bull_col < len(cells):
+                        bullish = float(cells[bull_col].replace("%", "").strip())
+                    if neutral_col and neutral_col < len(cells):
+                        neutral = float(cells[neutral_col].replace("%", "").strip())
+                    if bear_col and bear_col < len(cells):
+                        bearish = float(cells[bear_col].replace("%", "").strip())
+                    survey_date = cells[date_col]
+                    break  # prima riga = dato più recente
+                except Exception:
+                    continue
 
         return {
             "bullish": bullish,
             "neutral": neutral,
             "bearish": bearish,
-            "bullish_fmt": f"{bullish:.1f}%" if bullish else "N/A",
-            "neutral_fmt": f"{neutral:.1f}%" if neutral else "N/A",
-            "bearish_fmt": f"{bearish:.1f}%" if bearish else "N/A",
+            "bullish_fmt": f"{bullish:.1f}%" if bullish is not None else "N/A",
+            "neutral_fmt": f"{neutral:.1f}%" if neutral is not None else "N/A",
+            "bearish_fmt": f"{bearish:.1f}%" if bearish is not None else "N/A",
+            "survey_date": survey_date or "",
             "source": "AAII",
             "note": "Dati settimanali",
         }
