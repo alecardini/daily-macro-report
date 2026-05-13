@@ -162,6 +162,21 @@ def should_fetch_full(url):
     return any(s in url for s in FULL_TEXT_SOURCES)
 
 
+def _translate_if_needed(text):
+    """Rileva la lingua e traduce in inglese se non è già inglese. Fallback silenzioso."""
+    if not text or len(text) < 10:
+        return text
+    try:
+        from langdetect import detect
+        from deep_translator import GoogleTranslator
+        lang = detect(text)
+        if lang != "en":
+            return GoogleTranslator(source="auto", target="en").translate(text)
+    except Exception:
+        pass
+    return text
+
+
 def fetch_rss_feed(name, url, filter_keywords=None, hours_back=24):
     """Parse an RSS feed and return list of article dicts."""
     articles = []
@@ -192,6 +207,8 @@ def fetch_rss_feed(name, url, filter_keywords=None, hours_back=24):
                 full_text = fetch_full_article_text(link)
                 time.sleep(0.2)
 
+            title = _translate_if_needed(title)
+            summary = _translate_if_needed(summary)
             summary_out = extract_key_points(title, summary, full_text)
 
             articles.append({

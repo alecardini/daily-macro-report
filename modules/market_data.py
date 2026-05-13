@@ -20,6 +20,8 @@ import pytz
 import re
 import sys
 import os
+import json
+import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 from bs4 import BeautifulSoup
@@ -347,16 +349,38 @@ def get_cnn_fear_greed():
         return {"score": None, "label": "N/A", "color": "#888", "source": "CNN Money"}
 
 
+_AAII_CACHE_PATH   = "/tmp/aaii_cache.json"
+_AAII_FALLBACK_MAX = 6 * 24 * 3600  # fallback max 6 giorni — oltre: N/A
+
+def _load_aaii_cache():
+    """Restituisce (data, age_seconds) oppure (None, None) se non esiste."""
+    try:
+        with open(_AAII_CACHE_PATH) as f:
+            cached = json.load(f)
+        age = time.time() - cached.get("_ts", 0)
+        return cached.get("data"), age
+    except Exception:
+        return None, None
+
+def _save_aaii_cache(data):
+    try:
+        with open(_AAII_CACHE_PATH, "w") as f:
+            json.dump({"_ts": time.time(), "data": data}, f)
+    except Exception:
+        pass
+
 def get_aaii_sentiment():
     """
-    Fetch AAII Investor Sentiment Survey (weekly).
-    Returns % Bullish, % Bearish, % Neutral.
+    Fetch AAII Investor Sentiment Survey (weekly, pubblicato ogni giovedì).
+    Tenta sempre il fetch. Se fallisce usa cache come fallback solo se < 6 giorni.
+    Oltre 6 giorni → N/A, così il problema è visibile.
     """
+    cached_data, cache_age = _load_aaii_cache()
+
     try:
-        # AAII publishes weekly data via their RSS/page
         url = "https://www.aaii.com/sentimentsurvey/sent_results"
         headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         }
         resp = requests.get(url, headers=headers, timeout=12)
         soup = BeautifulSoup(resp.text, "html.parser")
@@ -390,7 +414,7 @@ def get_aaii_sentiment():
                 except Exception:
                     continue
 
-        return {
+        result = {
             "bullish": bullish,
             "neutral": neutral,
             "bearish": bearish,
@@ -401,8 +425,13 @@ def get_aaii_sentiment():
             "source": "AAII",
             "note": "Dati settimanali",
         }
+        _save_aaii_cache(result)
+        return result
     except Exception as e:
         print(f"[Sentiment] AAII error: {e}")
+        if cached_data and cache_age is not None and cache_age < _AAII_FALLBACK_MAX:
+            print(f"[Sentiment] AAII: uso cache ({int(cache_age/3600)}h fa) come fallback")
+            return cached_data
         return {
             "bullish_fmt": "N/A", "neutral_fmt": "N/A", "bearish_fmt": "N/A",
             "source": "AAII"
