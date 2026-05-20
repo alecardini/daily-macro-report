@@ -171,4 +171,6 @@ CALENDAR_WHITELIST = [
     "Durable Goods Orders",    # USD — aggiunto 17/04/2026
     "Manufacturing PMI",       # CNY (+ altri Manufacturing PMI Low) — aggiunto 28/04/2026
     "Chicago PMI",             # USD — aggiunto 28/04/2026
+    "Final CPI y/y",           # EUR Eurozone Final CPI y/y — aggiunto 20/05/2026
+    "Final Core CPI y/y",      # EUR Eurozone Final Core CPI y/y — aggiunto 20/05/2026
 ]
