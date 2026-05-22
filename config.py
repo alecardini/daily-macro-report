@@ -173,4 +173,5 @@ CALENDAR_WHITELIST = [
     "Chicago PMI",             # USD — aggiunto 28/04/2026
     "Final CPI y/y",           # EUR Eurozone Final CPI y/y — aggiunto 20/05/2026
     "Final Core CPI y/y",      # EUR Eurozone Final Core CPI y/y — aggiunto 20/05/2026
+    "German Final GDP",        # EUR German Final GDP q/q — aggiunto 22/05/2026
 ]
