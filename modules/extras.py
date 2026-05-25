@@ -11,7 +11,7 @@ import requests
 import yfinance as yf
 from datetime import datetime, timezone, timedelta, date
 import pytz
-import sys, os
+import sys, os, json, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 
@@ -21,11 +21,34 @@ ROME_TZ = pytz.timezone("Europe/Rome")
 # DERIBIT: Put/Call Ratio
 # ─────────────────────────────────────────────────────────────
 
+_PC_CACHE_TTL = 4 * 3600  # 4 ore — P/C cambia durante la giornata
+
+def _pc_cache_path(currency):
+    return f"/tmp/deribit_pc_{currency.lower()}_cache.json"
+
+def _load_pc_cache(currency):
+    try:
+        with open(_pc_cache_path(currency)) as f:
+            cached = json.load(f)
+        age = time.time() - cached.get("_ts", 0)
+        return cached.get("data"), age
+    except Exception:
+        return None, None
+
+def _save_pc_cache(currency, data):
+    try:
+        with open(_pc_cache_path(currency), "w") as f:
+            json.dump({"_ts": time.time(), "data": data}, f)
+    except Exception:
+        pass
+
 def get_deribit_pc_ratio(currency="BTC"):
     """
     Calcola Put/Call ratio da Deribit (API pubblica, no key).
-    Restituisce sia P/C su volume (24h) che su Open Interest.
+    Cache 4h su disco. Se API non risponde usa ultimo dato disponibile (max 24h).
     """
+    cached_data, cache_age = _load_pc_cache(currency)
+
     try:
         resp = requests.get(
             "https://www.deribit.com/api/v2/public/get_book_summary_by_currency",
@@ -83,8 +106,13 @@ def get_deribit_pc_ratio(currency="BTC"):
             "call_oi_contracts": int(call_oi),
             "source": "Deribit (public API)",
         }
+        _save_pc_cache(currency, result)
+        return result
     except Exception as e:
         print(f"[Extras] Deribit P/C error ({currency}): {e}")
+        if cached_data and cache_age is not None and cache_age < 24 * 3600:
+            print(f"[Extras] Deribit P/C {currency}: uso cache ({int(cache_age/3600)}h fa) come fallback")
+            return cached_data
         return {"currency": currency, "pc_volume_fmt": "N/A", "pc_oi_fmt": "N/A", "source": "Deribit"}
 
 
