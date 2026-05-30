@@ -308,16 +308,35 @@ def get_gold_etf_data():
 # SENTIMENT: CNN Fear & Greed + AAII
 # ─────────────────────────────────────────────────────────────
 
+_CNN_FG_CACHE_PATH    = "/tmp/cnn_fg_cache.json"
+_CNN_FG_FALLBACK_MAX  = 24 * 3600  # fallback max 24h — dato giornaliero
+
+def _load_cnn_fg_cache():
+    try:
+        with open(_CNN_FG_CACHE_PATH) as f:
+            cached = json.load(f)
+        age = time.time() - cached.get("_ts", 0)
+        return cached.get("data"), age
+    except Exception:
+        return None, None
+
+def _save_cnn_fg_cache(data):
+    try:
+        with open(_CNN_FG_CACHE_PATH, "w") as f:
+            json.dump({"_ts": time.time(), "data": data}, f)
+    except Exception:
+        pass
+
 def get_cnn_fear_greed():
     """
     Fetch CNN Fear & Greed Index (US Equity).
-    Scrapes CNN Money public page.
+    Cache 24h su disco — fallback su ultimo dato se CNN non risponde.
     """
+    cached_data, cache_age = _load_cnn_fg_cache()
     try:
-        # CNN exposes F&G via a semi-public API endpoint
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Referer": "https://edition.cnn.com/",
         }
         resp = requests.get(url, headers=headers, timeout=10)
@@ -337,15 +356,20 @@ def get_cnn_fear_greed():
         }
         label, color = label_map.get(rating.lower(), (rating.title(), "#888"))
 
-        return {
+        result = {
             "score": round(score),
             "label": label,
             "color": color,
             "prev_score": round(prev_score),
             "source": "CNN Money",
         }
+        _save_cnn_fg_cache(result)
+        return result
     except Exception as e:
         print(f"[Sentiment] CNN F&G error: {e}")
+        if cached_data and cache_age is not None and cache_age < _CNN_FG_FALLBACK_MAX:
+            print(f"[Sentiment] CNN F&G: uso cache ({int(cache_age/3600)}h fa) come fallback")
+            return cached_data
         return {"score": None, "label": "N/A", "color": "#888", "source": "CNN Money"}
 
 
