@@ -162,16 +162,62 @@ MAX_ARTICLES_PER_SOURCE = 2
 # Il confronto è case-insensitive e per sottostringa.
 # =============================================================================
 CALENDAR_WHITELIST = [
-    "Final Services PMI",      # S&P Global Services PMI (US) — Forex Factory lo chiama così
-    "Crude Oil Inventories",   # EIA Weekly Crude Oil Inventories
+    "Final Services PMI",      # S&P Global Services PMI (US)
     "10-y Bond Auction",       # 10-Year Note Auction (USD)
-    "30-y Bond Auction",       # 30-Year Bond Auction (USD) — aggiunto 08/04/2026
-    "German Final CPI",        # German Final CPI m/m (EUR) — aggiunto 08/04/2026
-    "Existing Home Sales",     # USD — aggiunto 13/04/2026
-    "Durable Goods Orders",    # USD — aggiunto 17/04/2026
-    "Manufacturing PMI",       # CNY (+ altri Manufacturing PMI Low) — aggiunto 28/04/2026
-    "Chicago PMI",             # USD — aggiunto 28/04/2026
-    "Final CPI y/y",           # EUR Eurozone Final CPI y/y — aggiunto 20/05/2026
-    "Final Core CPI y/y",      # EUR Eurozone Final Core CPI y/y — aggiunto 20/05/2026
-    "German Final GDP",        # EUR German Final GDP q/q — aggiunto 22/05/2026
+    "30-y Bond Auction",       # 30-Year Bond Auction (USD)
+    "German Final CPI",        # German Final CPI m/m (EUR)
+    "Existing Home Sales",     # USD
+    "Manufacturing PMI",       # CNY
+    "Chicago PMI",             # USD
+    "Final CPI y/y",           # EUR Eurozone Final CPI y/y
+    "Final Core CPI y/y",      # EUR Eurozone Final Core CPI y/y
+    "German Final GDP",        # EUR German Final GDP q/q
+    "New Home Sales",          # USD
+    "Crude Oil Inventories",   # EIA Weekly — Low on FF, kept via whitelist
+    "Durable Goods Orders",    # USD — Low on FF, kept via whitelist
+]
+
+# =============================================================================
+# CALENDARIO — BLACKLIST EVENTI
+# Questi eventi vengono SEMPRE esclusi dal calendario, qualunque sia il loro impatto.
+# Confronto case-insensitive per sottostringa sul titolo FF.
+# =============================================================================
+CALENDAR_BLACKLIST = [
+    "French Flash Manufacturing PMI",
+    "French Flash Services PMI",
+    "Trimmed Mean CPI",
+    "German 10-y Bond Auction",
+    "Final GDP Price Index",
+    "Core Durable Goods Orders",
+    "Macklem Speaks",                  # BOC Gov speeches — not requested
+    "Italian 10-y Bond Auction",       # aste italiane non rilevanti
+    "Revised UoM Consumer Sentiment",  # revisione secondaria
+    "Revised UoM Inflation Expectations", # revisione secondaria
+]
+
+# =============================================================================
+# CALENDARIO — OVERRIDE IMPATTO AD ALTO
+# Formato: ("sottostringa_titolo", "VALUTA_o_None")
+# None = qualsiasi valuta. Altrimenti solo per quella valuta.
+# =============================================================================
+CALENDAR_IMPACT_HIGH = [
+    ("Flash Manufacturing PMI", "USD"),   # solo US Flash PMI
+    ("Flash Services PMI",      "USD"),   # solo US Flash Services PMI
+    ("Trump Speaks",            None),    # discorsi del presidente
+    ("President Speaks",        None),    # generico
+    ("Crude Oil Inventories",   "USD"),   # EIA settimanale
+    ("New Home Sales",          "USD"),   # USD
+    ("Durable Goods Orders",    "USD"),   # USD (Core già in blacklist)
+    ("Unemployment Claims",      "USD"),   # FF title → renamed to Initial Jobless Claims
+]
+
+# =============================================================================
+# CALENDARIO — OVERRIDE IMPATTO A MEDIO
+# Formato: ("sottostringa_titolo", "VALUTA_o_None")
+# Abbassa a MED eventi che FF classifica High ma che sono meno rilevanti.
+# =============================================================================
+CALENDAR_IMPACT_MED = [
+    ("CPI",                 "AUD"),   # AUD CPI → medio
+    ("Employment Change",   "AUD"),   # AUD Employment → medio
+    ("Unemployment Rate",   "AUD"),   # AUD Unemployment → medio
 ]

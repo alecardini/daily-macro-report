@@ -165,42 +165,42 @@ def fetch_forex_factory_calendar():
 
 # Mappa valuta → mercati chiusi (usata per le festività)
 _HOLIDAY_MARKETS = {
-    "USD": "Borse USA (NYSE, Nasdaq)",
-    "EUR": "Borse europee",
-    "GBP": "Borsa di Londra (LSE)",
-    "JPY": "Borsa di Tokyo (TSE)",
-    "CNY": "Borse cinesi (Shanghai, Shenzhen)",
-    "AUD": "Borsa australiana (ASX)",
-    "NZD": "Borsa neozelandese (NZX)",
-    "CHF": "Borsa svizzera (SIX)",
-    "CAD": "Borsa canadese (TSX)",
+    "USD": "US Markets (NYSE, Nasdaq)",
+    "EUR": "European Markets",
+    "GBP": "London Stock Exchange (LSE)",
+    "JPY": "Tokyo Stock Exchange (TSE)",
+    "CNY": "Chinese Markets (Shanghai, Shenzhen)",
+    "AUD": "Australian Securities Exchange (ASX)",
+    "NZD": "New Zealand Exchange (NZX)",
+    "CHF": "Swiss Exchange (SIX)",
+    "CAD": "Toronto Stock Exchange (TSX)",
 }
 
 # Orari di apertura dei principali mercati (ora italiana, ora legale CEST = UTC+2)
 # Formato: (apertura, chiusura)
 _MARKET_HOURS_IT = {
-    "Borsa di Tokyo (TSE)":             ("02:00", "08:30"),
-    "Borse cinesi (Shanghai, Shenzhen)": ("03:30", "10:00"),
-    "Borsa di Hong Kong (HKEX)":        ("03:30", "10:00"),
-    "Borsa australiana (ASX)":          ("01:00", "07:00"),
-    "Borsa neozelandese (NZX)":         ("22:00", "06:30"),  # apre sera precedente
-    "Borsa di Londra (LSE)":            ("09:00", "17:30"),
-    "Borsa di Francoforte (XETRA)":     ("09:00", "17:30"),
-    "Borsa di Parigi (Euronext Paris)": ("09:00", "17:30"),
-    "Borsa Italiana (Euronext Milan)":  ("09:00", "17:30"),
-    "Borsa di Madrid (BME)":            ("09:00", "17:30"),
-    "Borsa svizzera (SIX)":             ("09:00", "17:30"),
-    "Borse europee":                    ("09:00", "17:30"),
-    "Borse USA (NYSE, Nasdaq)":         ("15:30", "22:00"),
-    "Borsa canadese (TSX)":             ("15:30", "22:00"),
+    "Tokyo Stock Exchange (TSE)":             ("02:00", "08:30"),
+    "Chinese Markets (Shanghai, Shenzhen)":   ("03:30", "10:00"),
+    "Hong Kong Stock Exchange (HKEX)":        ("03:30", "10:00"),
+    "Australian Securities Exchange (ASX)":   ("01:00", "07:00"),
+    "New Zealand Exchange (NZX)":             ("22:00", "06:30"),  # opens previous evening
+    "London Stock Exchange (LSE)":            ("09:00", "17:30"),
+    "Frankfurt Stock Exchange (XETRA)":       ("09:00", "17:30"),
+    "Paris Stock Exchange (Euronext Paris)":  ("09:00", "17:30"),
+    "Milan Stock Exchange (Euronext Milan)":  ("09:00", "17:30"),
+    "Madrid Stock Exchange (BME)":            ("09:00", "17:30"),
+    "Swiss Exchange (SIX)":                  ("09:00", "17:30"),
+    "European Markets":                       ("09:00", "17:30"),
+    "US Markets (NYSE, Nasdaq)":              ("15:30", "22:00"),
+    "Toronto Stock Exchange (TSX)":           ("15:30", "22:00"),
 }
 
 # Titoli specifici FF che indicano solo un paese EUR
 _EUR_COUNTRY_MARKETS = {
-    "french":  "Borsa di Parigi (Euronext Paris)",
-    "german":  "Borsa di Francoforte (XETRA)",
-    "italian": "Borsa Italiana (Euronext Milan)",
-    "spanish": "Borsa di Madrid (BME)",
+    "french":  "Paris Stock Exchange (Euronext Paris)",
+    "german":  "Frankfurt Stock Exchange (XETRA)",
+    "italian": "Milan Stock Exchange (Euronext Milan)",
+    "spanish": "Madrid Stock Exchange (BME)",
 }
 
 # Riepilogo orari weekend per tutti i mercati principali (ora italiana CEST)
@@ -263,8 +263,8 @@ NYSE_EARLY_CLOSE = _build_nyse_early_close_map()
 # ────────────────────────────────────────────────────────────────────────────
 
 _WEEKEND_CLOSURE_TEXT = (
-    "🔴 TUTTI I MERCATI CHIUSI — Weekend &nbsp;·&nbsp; "
-    "Riapertura lunedì: Tokyo 02:00 · Shanghai 03:30 · Londra/Francoforte 09:00 · New York 15:30 (ora italiana)"
+    "🔴 ALL MARKETS CLOSED — Weekend &nbsp;·&nbsp; "
+    "Reopening Monday: Tokyo 02:00 · Shanghai 03:30 · London/Frankfurt 09:00 · New York 15:30 (Italian time)"
 )
 
 
@@ -272,13 +272,13 @@ def _build_weekend_event(date_obj) -> dict:
     """Crea una riga 'mercati chiusi - weekend' per sabato o domenica."""
     import calendar
     day_name = calendar.day_name[date_obj.weekday()]  # 'Saturday' / 'Sunday'
-    label = "Sabato" if day_name == "Saturday" else "Domenica"
+    label = "Saturday" if day_name == "Saturday" else "Sunday"
     return {
-        "time": "Tutto il giorno",
+        "time": "All day",
         "currency": "—",
         "flag": "",
         "event": _WEEKEND_CLOSURE_TEXT,
-        "impact": "CHIUSO",
+        "impact": "CLOSED",
         "forecast": "—",
         "previous": "—",
         "actual": "—",
@@ -287,14 +287,33 @@ def _build_weekend_event(date_obj) -> dict:
     }
 
 
+def _match_impact_override(overrides, title, currency):
+    """Check if title+currency matches any (title_substr, currency_or_None) tuple."""
+    for entry in overrides:
+        t, c = entry
+        if t.lower() in title:
+            if c is None or c == currency:
+                return True
+    return False
+
+
 def _parse_ff_json(data, target_dates):
     """Parse Forex Factory JSON into {day_key: [events]} for target_dates."""
-    whitelist = [w.lower() for w in getattr(config, "CALENDAR_WHITELIST", [])]
+    whitelist    = [w.lower() for w in getattr(config, "CALENDAR_WHITELIST", [])]
+    blacklist    = [w.lower() for w in getattr(config, "CALENDAR_BLACKLIST", [])]
+    high_force   = getattr(config, "CALENDAR_IMPACT_HIGH", [])
+    med_force    = getattr(config, "CALENDAR_IMPACT_MED", [])
     result = {}
     for event in data:
         try:
-            impact = event.get("impact", "").lower()
-            title  = event.get("title", "").lower()
+            impact   = event.get("impact", "").lower()
+            title    = event.get("title", "").lower()
+            currency = event.get("country", "—")
+
+            # Blacklist: escludi sempre questi eventi
+            if any(b in title for b in blacklist):
+                continue
+
             in_whitelist = any(w in title for w in whitelist)
             is_holiday = impact == "holiday"
             if impact not in ("high", "medium") and not in_whitelist and not is_holiday:
@@ -314,7 +333,7 @@ def _parse_ff_json(data, target_dates):
                 currency = event.get("country", "—")
                 flag, _ = CURRENCY_FLAGS.get(currency, ("", currency))
                 # Determina mercato specifico dal titolo
-                market = _HOLIDAY_MARKETS.get(currency, f"Mercato {currency}")
+                market = _HOLIDAY_MARKETS.get(currency, f"Market {currency}")
                 if currency == "EUR":
                     for keyword, mkt in _EUR_COUNTRY_MARKETS.items():
                         if keyword in title:
@@ -322,15 +341,15 @@ def _parse_ff_json(data, target_dates):
                             break
                 hours = _MARKET_HOURS_IT.get(market)
                 if hours:
-                    hours_txt = f"Orario normale: {hours[0]}–{hours[1]} (ora italiana)"
+                    hours_txt = f"Normal hours: {hours[0]}–{hours[1]} (Italian time)"
                 else:
-                    hours_txt = "Orario non disponibile"
+                    hours_txt = "Hours not available"
                 result[day_key].append({
-                    "time": "Tutto il giorno",
+                    "time": "All day",
                     "currency": currency,
                     "flag": flag,
-                    "event": f"🔴 {market} CHIUSO — {event.get('title', 'Bank Holiday')} · {hours_txt}",
-                    "impact": "CHIUSO",
+                    "event": f"🔴 {market} CLOSED — {event.get('title', 'Bank Holiday')} · {hours_txt}",
+                    "impact": "CLOSED",
                     "forecast": "—",
                     "previous": "—",
                     "actual": "—",
@@ -339,10 +358,14 @@ def _parse_ff_json(data, target_dates):
                 })
                 continue
 
-            if impact == "high":
+            force_high = _match_impact_override(high_force, title, currency)
+            force_med  = _match_impact_override(med_force,  title, currency)
+            if force_med:
+                impact_label = "MED"
+            elif impact == "high" or force_high:
                 impact_label = "HIGH"
             elif in_whitelist and impact not in ("high", "medium"):
-                impact_label = "WL"   # whitelist — incluso per scelta dell'utente
+                impact_label = "WL"
             else:
                 impact_label = "MED"
             actual_raw = event.get("actual", "") or ""
@@ -402,12 +425,12 @@ def fetch_forex_factory_multiday(days=3):
             close_time, reason = NYSE_EARLY_CLOSE[d]
             flag, _ = CURRENCY_FLAGS.get("USD", ("🇺🇸", "USA"))
             early_ev = {
-                "time": "Tutto il giorno",
+                "time": "All day",
                 "currency": "USD",
                 "flag": flag,
                 "event": (
-                    f"🟡 Borse USA (NYSE, Nasdaq) CHIUSURA ANTICIPATA — {reason}"
-                    f" &nbsp;·&nbsp; Chiude alle {close_time} (ora italiana) invece delle 22:00"
+                    f"🟡 US Markets (NYSE, Nasdaq) EARLY CLOSE — {reason}"
+                    f" &nbsp;·&nbsp; Closes at {close_time} (Italian time) instead of 22:00"
                 ),
                 "impact": "EARLY",
                 "forecast": "—",
@@ -457,7 +480,7 @@ def fetch_forex_factory_multiday(days=3):
                 resp.raise_for_status()
                 if not resp.text.strip():
                     wait = base_delay * (2 ** attempt)
-                    print(f"[Calendar] Risposta vuota da FF, retry in {wait}s...")
+                    print(f"[Calendar] Empty response from FF, retrying in {wait}s...")
                     _time.sleep(wait)
                     continue
                 data = resp.json()
@@ -469,14 +492,14 @@ def fetch_forex_factory_multiday(days=3):
                     pass
                 return data
             except Exception as e:
-                print(f"[Calendar] Errore fetch {url}: {e}")
+                print(f"[Calendar] Fetch error {url}: {e}")
                 if attempt < max_retries - 1:
                     _time.sleep(base_delay)
         # Tutti i retry falliti — usa cache scaduta se disponibile (meglio vecchi dati che niente)
         if os.path.exists(cache_file):
             try:
                 with open(cache_file) as f:
-                    print(f"[Calendar] Usando cache scaduta per {url.split('/')[-1]}")
+                    print(f"[Calendar] Using expired cache for {url.split('/')[-1]}")
                     return _json.load(f)
             except Exception:
                 pass
@@ -501,7 +524,7 @@ def fetch_forex_factory_multiday(days=3):
                         result[day_key].append(ev)
                 result[day_key].sort(key=lambda x: x["time"])
         except Exception as e:
-            print(f"[Calendar] Errore parsing {url}: {e}")
+            print(f"[Calendar] Parsing error {url}: {e}")
 
     # Riordina cronologicamente (il weekend precompilation può inserire giorni fuori ordine)
     def _day_key_to_date(key):
@@ -529,7 +552,7 @@ def get_economic_calendar():
         today_key = datetime.now(ROME_TZ).strftime("%A %d %B")
         return {today_key: [{
             "time": "—", "currency": "—", "flag": "",
-            "event": "Nessun evento ad alto impatto programmato",
+            "event": "No high-impact events scheduled",
             "impact": "HIGH", "forecast": "—", "previous": "—", "actual": "—",
             "actual_overdue": False, "source": "Forex Factory",
         }]}

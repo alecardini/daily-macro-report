@@ -19,7 +19,7 @@ OUTPUT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "report.h
 def banner():
     now = datetime.now(ROME_TZ).strftime("%d/%m/%Y %H:%M")
     print("\n" + "═"*60)
-    print(f"  DAILY MACRO REPORT — {now} (Roma)")
+    print(f"  DAILY MACRO REPORT — {now} (Rome)")
     print("═"*60 + "\n")
 
 
@@ -27,15 +27,15 @@ def check_config():
     import config
     w = []
     if config.NEWSAPI_KEY == "YOUR_NEWSAPI_KEY_HERE":
-        w.append("⚠  NEWSAPI_KEY → Bloomberg/WSJ/NYT/FT aggregatore non disponibile")
+        w.append("⚠  NEWSAPI_KEY → Bloomberg/WSJ/NYT/FT aggregator not available")
     if config.FRED_API_KEY == "YOUR_FRED_API_KEY_HERE":
-        w.append("⚠  FRED_API_KEY → Treasury yields da Yahoo Finance (fallback)")
+        w.append("⚠  FRED_API_KEY → Treasury yields from Yahoo Finance (fallback)")
     if config.COINGLASS_API_KEY == "YOUR_COINGLASS_API_KEY_HERE":
-        w.append("⚠  COINGLASS_API_KEY → Liquidazioni da OKX public (campione, non 24h totale)")
+        w.append("⚠  COINGLASS_API_KEY → Liquidations from OKX public API (sample, not full 24h)")
     if getattr(config, "CMC_API_KEY", "YOUR_CMC_API_KEY_HERE") == "YOUR_CMC_API_KEY_HERE":
-        w.append("⚠  CMC_API_KEY → Crypto F&G: media alternative.me + MA30 (senza CMC come secondo provider)")
+        w.append("⚠  CMC_API_KEY → Crypto F&G: alternative.me + MA30 average (no CMC as second provider)")
     if w:
-        print("API keys mancanti:")
+        print("Missing API keys:")
         for x in w: print(f"  {x}")
         print()
 
@@ -47,7 +47,7 @@ def fetch(name, func, *args, **kwargs):
         print(f"  ✓ {name} ({time.time()-t:.1f}s)")
         return r
     except Exception as e:
-        print(f"  ✗ {name} ERRORE: {e}")
+        print(f"  ✗ {name} ERROR: {e}")
         return None
 
 
@@ -68,7 +68,7 @@ def main():
     )
     from modules.html_template import generate_html
 
-    print("Raccolta dati in parallelo...\n")
+    print("Fetching data in parallel...\n")
     t0 = time.time()
     data = {}
 
@@ -129,7 +129,7 @@ def main():
             data[k] = [] if k != "calendar" else {}
 
     # ── Micro Analisi ──
-    print("\nGenerazione analisi...")
+    print("\nGenerating analysis...")
     prices  = data["crypto"].get("prices", {})
     btc_etf = data["crypto"].get("btc_etf", {})
     eth_etf = data["crypto"].get("eth_etf", {})
@@ -154,13 +154,13 @@ def main():
     }
 
     # ── Genera HTML ──
-    print("\nGenerazione HTML...")
+    print("\nGenerating HTML...")
     html = generate_html(data)
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(html)
 
     print(f"\n{'═'*60}")
-    print(f"  ✅ Report pronto in {time.time()-t0:.0f}s — {OUTPUT_FILE}")
+    print(f"  ✅ Report ready in {time.time()-t0:.0f}s — {OUTPUT_FILE}")
     print(f"{'═'*60}\n")
 
     try:

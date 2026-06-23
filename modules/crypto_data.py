@@ -590,7 +590,7 @@ def get_crypto_fear_greed():
             "color": color_map.get(label, "#888"),
             "prev_score": prev_score,
             "source": "alternative.me",
-            "note": "Indice alternativo — CMC F&G può differire",
+            "note": "Alternative index — CMC F&G may differ",
         }
     except Exception as e:
         print(f"[Crypto] F&G error: {e}")

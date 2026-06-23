@@ -447,7 +447,7 @@ def get_aaii_sentiment():
             "bearish_fmt": f"{bearish:.1f}%" if bearish is not None else "N/A",
             "survey_date": survey_date or "",
             "source": "AAII",
-            "note": "Dati settimanali",
+            "note": "Weekly data",
         }
         _save_aaii_cache(result)
         return result
@@ -574,20 +574,20 @@ def get_sector_rotation():
     worst = sorted_sectors[-1] if sorted_sectors else {}
 
     if risk_on_score > risk_off_score + 1.5:
-        regime = "Risk-ON — flussi settimanali verso settori ciclici e growth"
+        regime = "Risk-ON — weekly flows toward cyclical and growth sectors"
         regime_dir = "positive"
     elif risk_off_score > risk_on_score + 1.5:
-        regime = "Risk-OFF — rotazione settimanale verso settori difensivi"
+        regime = "Risk-OFF — weekly rotation toward defensive sectors"
         regime_dir = "negative"
     else:
-        regime = "Mercato misto — nessuna rotazione settoriale chiara questa settimana"
+        regime = "Mixed market — no clear sector rotation this week"
         regime_dir = "neutral"
 
     analysis = f"{regime}."
     if best.get("name"):
-        analysis += f" Miglior settore (settimana): {best['name']} ({best['pct_week_fmt']})."
+        analysis += f" Best sector (week): {best['name']} ({best['pct_week_fmt']})."
     if worst.get("name"):
-        analysis += f" Peggior settore (settimana): {worst['name']} ({worst['pct_week_fmt']})."
+        analysis += f" Worst sector (week): {worst['name']} ({worst['pct_week_fmt']})."
 
     return {
         "sectors":    sorted_sectors,

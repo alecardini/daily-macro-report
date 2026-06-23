@@ -36,17 +36,17 @@ def _render_calendar_table(events):
         actual_overdue = ev.get("actual_overdue", False)
         actual_cls = "actual-ok" if actual not in ["—", "", "N/A"] else ""
         if actual_overdue:
-            actual_cell = '<a href="https://www.investing.com/economic-calendar/" target="_blank" class="actual-pending-btn" title="Dato uscito ma non ancora aggiornato da Forex Factory — clicca per vedere il valore su Investing.com">🔗 Vedi dato</a>'
+            actual_cell = '<a href="https://www.investing.com/economic-calendar/" target="_blank" class="actual-pending-btn" title="Data released but not yet updated by Forex Factory — click to see the value on Investing.com">🔗 View data</a>'
         else:
             actual_cell = f'<span class="{actual_cls}">{actual}</span>'
-        is_holiday = ev.get('impact') == 'CHIUSO'
+        is_holiday = ev.get('impact') == 'CLOSED'
         is_early   = ev.get('impact') == 'EARLY'
         impact_val = ev.get('impact', 'HIGH')
         if impact_val == 'MED':
             impact_badge_cls = 'impact-med'
         elif impact_val == 'WL':
             impact_badge_cls = 'impact-wl'
-        elif impact_val == 'CHIUSO':
+        elif impact_val == 'CLOSED':
             impact_badge_cls = 'impact-chiuso'
         elif impact_val == 'EARLY':
             impact_badge_cls = 'impact-early'
@@ -67,8 +67,8 @@ def _render_calendar_table(events):
     <div class="table-wrapper">
         <table class="data-table">
             <thead><tr>
-                <th>Ora (Roma)</th><th>Valuta</th><th>Evento</th>
-                <th>Impatto</th><th>Forecast</th><th>Precedente</th><th>Attuale</th>
+                <th>Time (Rome)</th><th>Currency</th><th>Event</th>
+                <th>Impact</th><th>Forecast</th><th>Previous</th><th>Actual</th>
             </tr></thead>
             <tbody>{rows}</tbody>
         </table>
@@ -78,7 +78,7 @@ def _render_calendar_table(events):
 def render_calendar(events_data):
     """events_data can be dict {day_label: [events]} or list (legacy)."""
     if not events_data:
-        return "<p class='no-data'>Nessun evento ad alto impatto nei prossimi 3 giorni.</p>"
+        return "<p class='no-data'>No high-impact events in the next 3 days.</p>"
 
     # Legacy: plain list → wrap in dict
     if isinstance(events_data, list):
@@ -94,12 +94,12 @@ def render_calendar(events_data):
 
     for day_label, events in events_data.items():
         is_today = day_label == today_label
-        badge = '<span class="day-today-badge">OGGI</span>' if is_today else ""
+        badge = '<span class="day-today-badge">TODAY</span>' if is_today else ""
         html += f'<div class="cal-day-header">{day_label} {badge}</div>'
         if events:
             html += _render_calendar_table(events)
         else:
-            html += "<p class='no-data' style='padding:8px 0'>Nessun evento HIGH IMPACT</p>"
+            html += "<p class='no-data' style='padding:8px 0'>No HIGH IMPACT events</p>"
 
     return html
 
@@ -110,7 +110,7 @@ def render_calendar(events_data):
 
 def render_news_item(art, idx):
     has_full = art.get("has_full_text", False)
-    full_badge = '<span class="full-badge">ANALIZZATO</span>' if has_full else ""
+    full_badge = '<span class="full-badge">FULL TEXT</span>' if has_full else ""
     return f"""
     <div class="news-item">
         <div class="news-header">
@@ -123,7 +123,7 @@ def render_news_item(art, idx):
     </div>"""
 
 
-def render_news_section(articles, empty="Nessuna news disponibile."):
+def render_news_section(articles, empty="No news available."):
     if not articles:
         return f"<p class='no-data'>{empty}</p>"
     html = '<div class="news-grid">'
@@ -144,13 +144,13 @@ def render_sentiment(sentiment, vix_data=None, sentiment_analysis=""):
 
     def gauge(score, label, color, title, prev, source, note=""):
         sv = score if score is not None else 0
-        prev_html = f'<span class="prev-score">Ieri: {prev}</span>' if prev else ""
+        prev_html = f'<span class="prev-score">Yesterday: {prev}</span>' if prev else ""
         note_html = f'<div class="fg-note">{note}</div>' if note else ""
         return f"""
         <div class="sentiment-card">
             <h4>{title}</h4>
             <div class="gauge-bar"><div class="gauge-fill" style="width:{sv}%;background:{color}"></div></div>
-            <div class="gauge-labels"><span>Paura</span><span>Neutro</span><span>Euforia</span></div>
+            <div class="gauge-labels"><span>Fear</span><span>Neutral</span><span>Greed</span></div>
             <div class="gauge-score" style="color:{color}">{sv if score is not None else 'N/A'}</div>
             <div class="gauge-label" style="color:{color}">{label}</div>
             {prev_html}
@@ -191,7 +191,7 @@ def render_sentiment(sentiment, vix_data=None, sentiment_analysis=""):
                 <span class="aaii-val">{aaii.get('bearish_fmt','N/A')}</span>
             </div>
         </div>
-        <span class="source-tag">AAII — Rilevazione settimanale{(' · ' + aaii['survey_date']) if aaii.get('survey_date') else ''}</span>
+        <span class="source-tag">AAII — Weekly survey{(' · ' + aaii['survey_date']) if aaii.get('survey_date') else ''}</span>
     </div>"""
 
     # VIX card
@@ -200,15 +200,15 @@ def render_sentiment(sentiment, vix_data=None, sentiment_analysis=""):
         vix_val = vix_data["price"]
         vix_pct = vix_data.get("pct_fmt", "")
         if vix_val < 15:
-            vix_label, vix_color = "Calmo", "#27ae60"
+            vix_label, vix_color = "Calm", "#27ae60"
         elif vix_val < 20:
-            vix_label, vix_color = "Normale", "#2ecc71"
+            vix_label, vix_color = "Normal", "#2ecc71"
         elif vix_val < 30:
-            vix_label, vix_color = "Tensione", "#f39c12"
+            vix_label, vix_color = "Elevated", "#f39c12"
         elif vix_val < 40:
-            vix_label, vix_color = "Stress elevato", "#e67e22"
+            vix_label, vix_color = "High Stress", "#e67e22"
         else:
-            vix_label, vix_color = "Panico", "#e74c3c"
+            vix_label, vix_color = "Panic", "#e74c3c"
 
         vix_html = f"""
         <div class="sentiment-card vix-card">
@@ -217,8 +217,8 @@ def render_sentiment(sentiment, vix_data=None, sentiment_analysis=""):
             <div class="vix-label" style="color:{vix_color}">{vix_label}</div>
             <div class="vix-change {cc(vix_data.get('direction','neutral'))}">{vix_pct}</div>
             <div class="vix-scale">
-                <span class="positive">0–15 Calmo</span>
-                <span class="neutral-c">15–25 Normale</span>
+                <span class="positive">0–15 Calm</span>
+                <span class="neutral-c">15–25 Normal</span>
                 <span class="negative">25+ Stress</span>
             </div>
             <span class="source-tag">CBOE via Yahoo Finance</span>
@@ -303,11 +303,11 @@ def render_crypto(crypto_data, analyses=None):
             farside_url   = farside_map.get(sym, "#")
             etf_html = f"""
             <div class="etf-block">
-                <div class="etf-title">{sym} ETF — Flows Giornalieri</div>
+                <div class="etf-title">{sym} ETF — Daily Flows</div>
                 <div class="etf-flow-main {flow_dir}">{flow_arr} {flow_fmt}
                     <span class="etf-date">{last_date}</span>
                 </div>
-                <div class="etf-cum">AUM cumulativo storico: {cum_fmt}</div>
+                <div class="etf-cum">Historical cumulative AUM: {cum_fmt}</div>
                 {by_etf_html}
                 <div class="etf-links">
                     <a href="{farside_url}" target="_blank">farside.co.uk</a>
@@ -348,7 +348,7 @@ def render_crypto(crypto_data, analyses=None):
             dom = "long" if long_r > short_r else "short"
             liq_html = f"""
             <div class="liq-block">
-                <div class="liq-title">Liquidazioni 24h</div>
+                <div class="liq-title">Liquidations 24h</div>
                 <div class="liq-total">{liq_total}</div>
                 <div class="liq-detail">
                     <span class="positive">Long: {liq.get('long_24h','—')}</span>
@@ -358,7 +358,7 @@ def render_crypto(crypto_data, analyses=None):
             </div>"""
         else:
             liq_url = liq.get("url", "https://www.coinglass.com/LiquidationData")
-            liq_html = f'<div class="liq-placeholder"><a href="{liq_url}" target="_blank">→ Dati liquidazioni su CoinGlass (API key richiesta)</a></div>'
+            liq_html = f'<div class="liq-placeholder"><a href="{liq_url}" target="_blank">→ Liquidation data on CoinGlass (API key required)</a></div>'
 
         coins_html += f"""
         <div class="crypto-card {cc(direction)}-border">
@@ -378,7 +378,7 @@ def render_crypto(crypto_data, analyses=None):
                 <span class="sub-label">Vol 24h:</span>
                 <strong>{coin.get('volume_24h_fmt','N/A')}</strong>
                 &nbsp;|&nbsp;
-                <span class="sub-label">Da ATH:</span>
+                <span class="sub-label">From ATH:</span>
                 <span class="negative">{coin.get('ath_distance','N/A')}</span>
             </div>
             {analysis_html}
@@ -446,11 +446,11 @@ def render_indices(indices, futures, yields, analysis_text=""):
     return f"""
     {analysis_html}
     <div class="subsection">
-        <h3 class="subsection-title">Indici USA</h3>
+        <h3 class="subsection-title">US Indices</h3>
         {idx_html}
     </div>
     <div class="subsection">
-        <h3 class="subsection-title">Futures Pre-Market</h3>
+        <h3 class="subsection-title">Pre-Market Futures</h3>
         {fut_html}
     </div>
     <div class="subsection">
@@ -507,7 +507,7 @@ def render_other_assets(assets, gold_etf, asset_analyses=None):
 
 def render_asia(asia_data):
     if not asia_data:
-        return "<p class='no-data'>Dati Asia non disponibili.</p>"
+        return "<p class='no-data'>Asia data not available.</p>"
 
     analysis = asia_data.pop("_analysis", "") if isinstance(asia_data, dict) else ""
     crypto_asia = asia_data.pop("_crypto_asia", {}) if isinstance(asia_data, dict) else {}
@@ -531,7 +531,7 @@ def render_asia(asia_data):
     crypto_html = ""
     if crypto_asia:
         session_label = next(iter(crypto_asia.values()), {}).get("session_label", "00:00-08:00 UTC")
-        crypto_html = f'<div class="subsection-title" style="margin-top:18px">Crypto — Sessione Asiatica ({session_label})</div>'
+        crypto_html = f'<div class="subsection-title" style="margin-top:18px">Crypto — Asian Session ({session_label})</div>'
         crypto_html += '<div class="assets-grid">'
         for sym in ["BTC", "ETH", "SOL"]:
             d = crypto_asia.get(sym)
@@ -559,7 +559,7 @@ def render_asia(asia_data):
 
 def render_pc_ratios(pc_data):
     if not pc_data:
-        return "<p class='no-data'>Dati P/C non disponibili.</p>"
+        return "<p class='no-data'>P/C data not available.</p>"
 
     html = '<div class="pc-grid">'
     for sym, d in pc_data.items():
@@ -584,21 +584,21 @@ def render_pc_ratios(pc_data):
                 <span class="pc-interp">{oi_lbl}</span>
             </div>
             <div class="pc-scale">
-                <span class="warning">&lt;0.40 Euforia</span>
+                <span class="warning">&lt;0.40 Euphoria</span>
                 <span class="positive">0.40–0.65 Bullish</span>
-                <span class="neutral-c">0.65–0.75 Neutro</span>
-                <span class="negative">0.75–1.0 Difensivo</span>
-                <span class="warning">&gt;1.20 Paura Estrema</span>
+                <span class="neutral-c">0.65–0.75 Neutral</span>
+                <span class="negative">0.75–1.0 Defensive</span>
+                <span class="warning">&gt;1.20 Extreme Fear</span>
             </div>
             <span class="source-tag">Deribit (public API)</span>
         </div>"""
 
     html += "</div>"
     html += """<div class="pc-note">
-        <strong>Come leggere:</strong> Indicatore contrarian — valori estremi segnalano potenziale inversione.
-        &lt;0.40 = euforia da call, possibile top. &gt;1.20 = panico da put, possibile bottom.
-        Il baseline "neutro" in crypto è ~0.70 (non 1.0 come in equity).
-        Volume P/C = sentiment intraday. OI P/C = posizionamento strutturale istituzionale.
+        <strong>How to read:</strong> Contrarian indicator — extreme values signal potential reversal.
+        &lt;0.40 = call euphoria, possible top. &gt;1.20 = put panic, possible bottom.
+        The "neutral" baseline in crypto is ~0.70 (not 1.0 as in equity).
+        Volume P/C = intraday sentiment. OI P/C = institutional structural positioning.
     </div>"""
     return html
 
@@ -611,9 +611,9 @@ def _earnings_table_header():
     return """
     <div class="etable-header">
         <span class="etcol-sym">Ticker</span>
-        <span class="etcol-name">Società</span>
-        <span class="etcol-date">Data</span>
-        <span class="etcol-time">Orario</span>
+        <span class="etcol-name">Company</span>
+        <span class="etcol-date">Date</span>
+        <span class="etcol-time">Time</span>
         <span class="etcol-eps">EPS Actual</span>
         <span class="etcol-eps">EPS Est.</span>
         <span class="etcol-rev">Rev Est.</span>
@@ -632,7 +632,7 @@ def _earnings_row(e, badge=None):
         time_badge = '<span class="release-badge release-pre">PRE</span>'
     elif release_label == "After-Market":
         time_badge = '<span class="release-badge release-amc">AMC</span>'
-    elif release_label == "Durante sessione":
+    elif release_label == "During session":
         time_badge = '<span class="release-badge release-intra">INTRA</span>'
     else:
         time_badge = ""
@@ -665,7 +665,7 @@ def render_earnings(earnings_data):
 
     # ── Ieri: actuals freschi ──
     if yesterday_list:
-        html += '<div class="earnings-section-label">📋 Risultati di ieri (after market close)</div>'
+        html += '<div class="earnings-section-label">📋 Yesterday\'s results (after market close)</div>'
         html += '<div class="etable">'
         html += _earnings_table_header()
         for e in yesterday_list:
@@ -675,16 +675,16 @@ def render_earnings(earnings_data):
     # ── Oggi: urgente ──
     if today_list:
         html += '<div class="earnings-urgent">'
-        html += '<div class="earnings-section-label">🔔 Riporta OGGI</div>'
+        html += '<div class="earnings-section-label">🔔 Reports TODAY</div>'
         html += '<div class="etable">'
         html += _earnings_table_header()
         for e in today_list:
-            html += _earnings_row(e, badge="OGGI")
+            html += _earnings_row(e, badge="TODAY")
         html += "</div></div>"
 
     # ── Prossimi 7 giorni ──
     if upcoming:
-        html += '<div class="earnings-section-label" style="margin-top:18px">📅 Prossimi 7 giorni</div>'
+        html += '<div class="earnings-section-label" style="margin-top:18px">📅 Next 7 days</div>'
         html += '<div class="etable">'
         html += _earnings_table_header()
         for e in upcoming[:10]:
@@ -700,14 +700,14 @@ def render_earnings(earnings_data):
 
 def render_sector_rotation(sr_data):
     if not sr_data:
-        return "<p class='no-data'>Dati settori non disponibili.</p>"
+        return "<p class='no-data'>Sector data not available.</p>"
 
     sectors = sr_data.get("sectors", [])
     analysis = sr_data.get("analysis", "")
     analysis_html = f'<div class="analysis-box"><p>{analysis}</p></div>' if analysis else ""
 
     if not sectors:
-        return analysis_html or "<p class='no-data'>Dati settori non disponibili.</p>"
+        return analysis_html or "<p class='no-data'>Sector data not available.</p>"
 
     max_abs_week = max(abs(s.get("pct_week") or 0) for s in sectors) or 1
 
@@ -729,9 +729,9 @@ def render_sector_rotation(sr_data):
             <div class="sector-bar-wrap">
                 <div class="sector-bar {direction}" style="width:{bar_w:.0f}%"></div>
             </div>
-            <span class="sector-pct {direction}" title="Settimana">{s['pct_week_fmt']}</span>
-            <span class="sector-pct-sec {dir_m}" title="Mese">{s['pct_month_fmt']}</span>
-            <span class="sector-pct-sec {dir_q}" title="Trimestre">{s['pct_quarter_fmt']}</span>
+            <span class="sector-pct {direction}" title="Week">{s['pct_week_fmt']}</span>
+            <span class="sector-pct-sec {dir_m}" title="Month">{s['pct_month_fmt']}</span>
+            <span class="sector-pct-sec {dir_q}" title="Quarter">{s['pct_quarter_fmt']}</span>
         </div>"""
 
     header = """
@@ -747,7 +747,7 @@ def render_sector_rotation(sr_data):
     return f"""
     {analysis_html}
     <div class="sector-grid">{header}{rows}</div>
-    <span class="source-tag">Yahoo Finance — Settori S&P 500</span>"""
+    <span class="source-tag">Yahoo Finance — S&P 500 Sectors</span>"""
 
 
 # ─────────────────────────────────────────────────────────────
@@ -765,19 +765,19 @@ def generate_html(data):
     earnings_html = render_earnings(data.get("earnings", {}))
     cal_html      = render_calendar(data.get("calendar", {}))
     news_html     = render_news_section(data.get("news", []))
-    cb_news_html  = render_news_section(data.get("cb_news", []), "Nessuna news su banche centrali nelle ultime 48h.")
+    cb_news_html  = render_news_section(data.get("cb_news", []), "No central bank news in the last 48h.")
     sentiment_html = render_sentiment(data.get("sentiment", {}), vix_data, analyses.get("sentiment",""))
     crypto_html   = render_crypto(data.get("crypto", {}), analyses.get("crypto",{}))
     indices_html  = render_indices(data.get("indices",{}), data.get("futures",{}), data.get("yields",{}), analyses.get("indices",""))
     asia_html     = render_asia(data.get("asia", {}))
     assets_html   = render_other_assets(data.get("other_assets",{}), data.get("gold_etf",{}), analyses.get("assets",{}))
-    oil_news_html = render_news_section(data.get("oil_news", []), "Nessuna news Oil & Energy disponibile.")
+    oil_news_html = render_news_section(data.get("oil_news", []), "No Oil & Energy news available.")
     pc_html       = render_pc_ratios(data.get("pc_ratios", {}))
     sector_html   = render_sector_rotation(data.get("sector_rotation", {}))
-    ai_html       = render_news_section(data.get("ai_news", []), "Nessuna news AI & Robotica disponibile.")
+    ai_html       = render_news_section(data.get("ai_news", []), "No AI & Robotics news available.")
 
     return f"""<!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1024,8 +1024,8 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
     <div class="header-date">{day_name} — {gen_time}</div>
   </div>
   <div style="text-align:right">
-    <div class="live-badge">● AGGIORNATO</div>
-    <div class="gen-time">Generato alle {now_rome.strftime('%H:%M')}</div>
+    <div class="live-badge">● UPDATED</div>
+    <div class="gen-time">Generated at {now_rome.strftime('%H:%M')}</div>
   </div>
 </div>
 
@@ -1034,8 +1034,8 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 <div class="section">
   <div class="section-header">
     <span class="section-icon">📅</span>
-    <span class="section-title">Calendario Economico</span>
-    <span class="section-sub">Solo HIGH IMPACT — Orario Roma (GMT+2) — Forex Factory</span>
+    <span class="section-title">Economic Calendar</span>
+    <span class="section-sub">HIGH IMPACT only — Rome time (GMT+2) — Forex Factory</span>
   </div>
   <div class="section-body">{cal_html}</div>
 </div>
@@ -1043,8 +1043,8 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 {f'''<div class="section">
   <div class="section-header">
     <span class="section-icon">📊</span>
-    <span class="section-title">Earnings — Societá Chiave</span>
-    <span class="section-sub">Riporta oggi + prossimi 7 giorni</span>
+    <span class="section-title">Earnings — Key Companies</span>
+    <span class="section-sub">Reports today + next 7 days</span>
   </div>
   <div class="section-body">{earnings_html}</div>
 </div>''' if earnings_html else ""}
@@ -1052,7 +1052,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 <div class="section">
   <div class="section-header">
     <span class="section-icon">📰</span>
-    <span class="section-title">Breaking News — Ultime 24h</span>
+    <span class="section-title">Breaking News — Last 24h</span>
     <span class="section-sub">Bloomberg · CNBC · FT · BBC · Guardian · Al Jazeera · MarketWatch</span>
   </div>
   <div class="section-body">{news_html}</div>
@@ -1061,8 +1061,8 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 <div class="section">
   <div class="section-header">
     <span class="section-icon">🏦</span>
-    <span class="section-title">Banche Centrali</span>
-    <span class="section-sub">Fed · BCE · BoJ · BoC · RBA · BoE · SNB · PBOC — Ultime 48h</span>
+    <span class="section-title">Central Banks</span>
+    <span class="section-sub">Fed · ECB · BoJ · BoC · RBA · BoE · SNB · PBOC — Last 48h</span>
   </div>
   <div class="section-body">{cb_news_html}</div>
 </div>
@@ -1089,7 +1089,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
   <div class="section-header">
     <span class="section-icon">⚖️</span>
     <span class="section-title">Deribit Put/Call Ratio — BTC · ETH</span>
-    <span class="section-sub">Volume 24h + Open Interest — Deribit (API pubblica)</span>
+    <span class="section-sub">Volume 24h + Open Interest — Deribit (public API)</span>
   </div>
   <div class="section-body">{pc_html}</div>
 </div>
@@ -1097,7 +1097,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 <div class="section">
   <div class="section-header">
     <span class="section-icon">📈</span>
-    <span class="section-title">Mercati USA & Treasury Yields</span>
+    <span class="section-title">US Markets & Treasury Yields</span>
     <span class="section-sub">Yahoo Finance · FRED (Federal Reserve)</span>
   </div>
   <div class="section-body">{indices_html}</div>
@@ -1106,7 +1106,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 <div class="section">
   <div class="section-header">
     <span class="section-icon">🌏</span>
-    <span class="section-title">Sessione Asiatica</span>
+    <span class="section-title">Asian Session</span>
     <span class="section-sub">Nikkei · Hang Seng · Shanghai · CSI 300 · ASX 200 · KOSPI — Yahoo Finance</span>
   </div>
   <div class="section-body">{asia_html}</div>
@@ -1115,7 +1115,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 <div class="section">
   <div class="section-header">
     <span class="section-icon">🪙</span>
-    <span class="section-title">Altri Asset — DXY · Gold · Silver · Copper · Oil</span>
+    <span class="section-title">Other Assets — DXY · Gold · Silver · Copper · Oil</span>
     <span class="section-sub">Yahoo Finance · WGC</span>
   </div>
   <div class="section-body">{assets_html}</div>
@@ -1124,8 +1124,8 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 <div class="section">
   <div class="section-header">
     <span class="section-icon">🛢️</span>
-    <span class="section-title">Oil & Energy — News Ultime 24h</span>
-    <span class="section-sub">WTI · Brent · OPEC · Geopolitica Energetica</span>
+    <span class="section-title">Oil & Energy — News Last 24h</span>
+    <span class="section-sub">WTI · Brent · OPEC · Energy Geopolitics</span>
   </div>
   <div class="section-body">{oil_news_html}</div>
 </div>
@@ -1142,7 +1142,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 <div class="section">
   <div class="section-header">
     <span class="section-icon">🤖</span>
-    <span class="section-title">AI & Robotica — Ultime 24h</span>
+    <span class="section-title">AI & Robotics — Last 24h</span>
     <span class="section-sub">Bloomberg Tech · CNBC Tech · BBC Tech · Guardian Tech</span>
   </div>
   <div class="section-body">{ai_html}</div>
