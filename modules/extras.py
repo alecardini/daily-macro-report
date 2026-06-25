@@ -129,7 +129,7 @@ def get_pc_ratios():
 # EARNINGS: Prossime settimane — key stocks
 # ─────────────────────────────────────────────────────────────
 
-KEY_STOCKS = {
+_STATIC_KEY_STOCKS = {
     # Mega Tech
     "NVDA": "Nvidia", "AAPL": "Apple", "MSFT": "Microsoft",
     "GOOGL": "Alphabet", "META": "Meta", "AMZN": "Amazon",
@@ -138,138 +138,240 @@ KEY_STOCKS = {
     "JPM": "JPMorgan", "GS": "Goldman Sachs", "BAC": "Bank of America",
     "MS": "Morgan Stanley",
     # Other market-moving
-    "AMD": "AMD", "INTC": "Intel", "NFLX": "Netflix",
+    "AMD": "AMD", "INTC": "Intel", "NFLX": "Netflix", "MU": "Micron",
+}
+
+_TICKER_LIST_CACHE = "/tmp/earnings_ticker_universe_cache.json"
+_TICKER_LIST_TTL   = 90 * 24 * 3600  # 90 giorni (~3 mesi) — rebuild costoso (~500 yfinance calls), va fatto raramente
+
+
+def _fetch_nasdaq100():
+    """Scrape Nasdaq-100 constituents from Wikipedia."""
+    import pandas as pd, io
+    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+    r = requests.get("https://en.wikipedia.org/wiki/Nasdaq-100", headers=headers, timeout=20)
+    tables = pd.read_html(io.StringIO(r.text))
+    for t in tables:
+        cols = [str(c) for c in t.columns]
+        if "Ticker" in cols and "Company" in cols:
+            return {row["Ticker"].replace(".", "-"): row["Company"] for _, row in t.iterrows()}
+    return {}
+
+
+def _fetch_sp500_top100_by_marketcap():
+    """Scrape all S&P 500 tickers from Wikipedia, fetch market cap via yfinance, return top 100."""
+    import pandas as pd, io
+    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+    r = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", headers=headers, timeout=20)
+    tables = pd.read_html(io.StringIO(r.text))
+    sp500_df = tables[0]
+    pairs = [(row["Symbol"].replace(".", "-"), row["Security"]) for _, row in sp500_df.iterrows()]
+
+    ranked = []
+    for sym, name in pairs:
+        try:
+            mc = yf.Ticker(sym).fast_info.get("marketCap")
+            if mc:
+                ranked.append((sym, name, mc))
+        except Exception:
+            continue
+
+    ranked.sort(key=lambda x: x[2], reverse=True)
+    return {sym: name for sym, name, _ in ranked[:100]}
+
+
+def _load_ticker_universe_cache():
+    try:
+        with open(_TICKER_LIST_CACHE) as f:
+            cached = json.load(f)
+        age = time.time() - cached.get("_ts", 0)
+        if age < _TICKER_LIST_TTL:
+            return cached.get("data")
+        return None
+    except Exception:
+        return None
+
+
+def _save_ticker_universe_cache(data):
+    try:
+        with open(_TICKER_LIST_CACHE, "w") as f:
+            json.dump({"_ts": time.time(), "data": data}, f)
+    except Exception:
+        pass
+
+
+def _build_earnings_ticker_universe():
+    """
+    Build the full earnings tracking universe: NASDAQ-100 + S&P 500 top 100 by market cap.
+    Cached on disk for 30 days — building the S&P 500 ranking requires ~500 yfinance calls (~8 min).
+    """
+    cached = _load_ticker_universe_cache()
+    if cached:
+        return cached
+
+    print("[Extras] Building earnings ticker universe (Nasdaq-100 + S&P 500 top 100) — one-time, ~8-10 min...")
+    universe = dict(_STATIC_KEY_STOCKS)
+    try:
+        universe.update(_fetch_nasdaq100())
+    except Exception as e:
+        print(f"[Extras] Nasdaq-100 fetch error: {e}")
+    try:
+        universe.update(_fetch_sp500_top100_by_marketcap())
+    except Exception as e:
+        print(f"[Extras] S&P 500 top 100 fetch error: {e}")
+
+    if len(universe) > len(_STATIC_KEY_STOCKS):
+        _save_ticker_universe_cache(universe)
+        print(f"[Extras] Earnings ticker universe built: {len(universe)} companies (cached 90 days)")
+        return universe
+    print("[Extras] Failed to build ticker universe, falling back to static list")
+    return _STATIC_KEY_STOCKS
+
+
+KEY_STOCKS = _build_earnings_ticker_universe()
+
+
+_EARNINGS_CACHE_PATH = "/tmp/earnings_results_cache.json"
+
+def _load_earnings_cache():
+    """Cache valida solo per la stessa data (ora Roma) — dati earnings cambiano giorno per giorno."""
+    try:
+        with open(_EARNINGS_CACHE_PATH) as f:
+            cached = json.load(f)
+        if cached.get("_date") == datetime.now(ROME_TZ).date().isoformat():
+            return cached.get("data")
+        return None
+    except Exception:
+        return None
+
+def _save_earnings_cache(data):
+    try:
+        with open(_EARNINGS_CACHE_PATH, "w") as f:
+            json.dump({"_date": datetime.now(ROME_TZ).date().isoformat(), "data": data}, f, default=str)
+    except Exception:
+        pass
+
+
+def _parse_money(text):
+    """Parse '$1.73' / '12.5%' / 'N/A' style strings into float, or None."""
+    if not text or text in ("N/A", "—", ""):
+        return None
+    try:
+        return float(text.replace("$", "").replace(",", "").replace("%", "").strip())
+    except Exception:
+        return None
+
+
+def _fetch_nasdaq_earnings_day(date_obj):
+    """
+    Bulk earnings calendar for a single date from Nasdaq.com public API.
+    One request returns ALL companies reporting that day (no per-ticker calls needed).
+    """
+    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+    url = f"https://api.nasdaq.com/api/calendar/earnings?date={date_obj.isoformat()}"
+    resp = requests.get(url, headers=headers, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
+    rows = (data.get("data") or {}).get("rows") or []
+    return rows
+
+
+_TIME_LABEL_MAP = {
+    "time-pre-market":   "Pre-Market",
+    "time-after-hours":  "After-Market",
+    "time-not-supplied": "",
 }
 
 
 def get_earnings_this_week():
     """
-    Earnings in tre fasce:
-    - yesterday: usciti ieri dopo chiusura (~22:00 IT) → actuals + surprise visibili la mattina dopo
-    - today:     riportano oggi → banner urgente con estimates
-    - upcoming:  prossimi 7gg → tabella con estimates
-
-    Colonne mostrate: EPS actual/estimate | Revenue estimate | EPS Surprise% | Data | Orario report
+    Earnings in tre fasce: yesterday (actuals) / today / upcoming (7gg).
+    Usa il bulk earnings calendar pubblico di Nasdaq.com (1 richiesta per data, ~9 richieste totali)
+    invece di interrogare yfinance per ognuno dei ~200 ticker dell'universo — evita rate-limit.
+    Il risultato viene poi filtrato sull'universo NASDAQ-100 + S&P 500 top 100 (KEY_STOCKS).
+    Cache giornaliera su disco.
     """
-    print("[Extras] Fetching earnings calendar...")
+    cached = _load_earnings_cache()
+    if cached:
+        print("[Extras] Earnings: using today's cache")
+        return cached
+
+    print("[Extras] Fetching earnings calendar (Nasdaq.com bulk)...")
     today     = datetime.now(ROME_TZ).date()
     yesterday = today - timedelta(days=1)
-    week_end  = today + timedelta(days=7)
 
     earnings_yesterday = []
     earnings_today     = []
     earnings_upcoming  = []
 
-    def _safe(val):
-        """Return None if NaN, else val."""
+    universe = set(KEY_STOCKS.keys())
+
+    # yesterday: 1 giorno, today: 1 giorno, upcoming: 7 giorni → 9 richieste totali
+    dates_to_fetch = [yesterday, today] + [today + timedelta(days=i) for i in range(1, 8)]
+
+    for d in dates_to_fetch:
         try:
-            import math
-            if val is None: return None
-            if isinstance(val, float) and math.isnan(val): return None
-            return val
-        except Exception:
-            return None
+            rows = _fetch_nasdaq_earnings_day(d)
+        except Exception as e:
+            print(f"[Extras] Nasdaq earnings calendar error ({d}): {e}")
+            continue
 
-    for sym, name in KEY_STOCKS.items():
-        try:
-            t = yf.Ticker(sym)
-
-            # ── Actuals da earnings_dates (per ieri) ──
-            try:
-                ed_df = t.earnings_dates
-                if ed_df is not None and not ed_df.empty:
-                    for idx, row in ed_df.iterrows():
-                        try:
-                            ed_date = idx.date() if hasattr(idx, 'date') else idx
-                        except Exception:
-                            continue
-                        if ed_date != yesterday:
-                            continue
-                        eps_actual  = _safe(row.get("Reported EPS"))
-                        eps_est     = _safe(row.get("EPS Estimate"))
-                        surprise    = _safe(row.get("Surprise(%)"))
-                        # Determina beat/miss
-                        beat = None
-                        if eps_actual is not None and eps_est is not None and eps_est != 0:
-                            beat = eps_actual >= eps_est
-                        earnings_yesterday.append({
-                            "symbol":       sym,
-                            "name":         name,
-                            "date_fmt":     ed_date.strftime("%a %d %b"),
-                            "eps_actual":   f"${eps_actual:.2f}"  if eps_actual  is not None else "—",
-                            "eps_estimate": f"${eps_est:.2f}"     if eps_est     is not None else "—",
-                            "surprise":     f"{surprise:+.1f}%"   if surprise    is not None else "—",
-                            "beat":         beat,
-                            "rev_estimate": "—",   # yfinance free non dà revenue actuals
-                        })
-                        break
-            except Exception:
-                pass
-
-            # ── Upcoming + oggi via calendar ──
-            cal = t.calendar
-            if not cal or "Earnings Date" not in cal:
+        for row in rows:
+            sym = row.get("symbol", "")
+            if sym not in universe:
                 continue
-            dates = cal["Earnings Date"]
-            if not isinstance(dates, list):
-                dates = [dates]
+            name = KEY_STOCKS.get(sym, row.get("name", sym))
+            release_label = _TIME_LABEL_MAP.get(row.get("time", ""), "")
+            eps_est = _parse_money(row.get("epsForecast"))
 
-            for ed in dates:
-                if isinstance(ed, datetime):
-                    ed = ed.date()
-                if not (today <= ed <= week_end):
-                    continue
-                eps_est = _safe(cal.get("Earnings Average"))
-                rev_est = _safe(cal.get("Revenue Average"))
-
-                # Orario rilascio da earningsTimestampStart (ora italiana)
-                release_time = "—"
-                release_label = ""
-                try:
-                    ts = t.info.get("earningsTimestampStart")
-                    if ts:
-                        from datetime import timezone as _tz
-                        dt_rome = datetime.fromtimestamp(ts, tz=ROME_TZ)
-                        release_time = dt_rome.strftime("%H:%M")
-                        hour = dt_rome.hour
-                        if hour < 15 or (hour == 15 and dt_rome.minute < 30):
-                            release_label = "Pre-Market"
-                        elif hour >= 22 or (hour == 21 and dt_rome.minute >= 30):
-                            release_label = "After-Market"
-                        else:
-                            release_label = "Durante sessione"
-                except Exception:
-                    pass
-
+            if d == yesterday:
+                eps_actual = _parse_money(row.get("eps"))
+                surprise   = _parse_money(row.get("surprise"))
+                beat = None
+                if eps_actual is not None and eps_est is not None and eps_est != 0:
+                    beat = eps_actual >= eps_est
+                earnings_yesterday.append({
+                    "symbol":       sym,
+                    "name":         name,
+                    "date_fmt":     d.strftime("%a %d %b"),
+                    "eps_actual":   f"${eps_actual:.2f}" if eps_actual is not None else "—",
+                    "eps_estimate": f"${eps_est:.2f}"    if eps_est    is not None else "—",
+                    "surprise":     f"{surprise:+.1f}%"  if surprise  is not None else "—",
+                    "beat":         beat,
+                    "rev_estimate": "—",   # Nasdaq.com bulk calendar non fornisce revenue
+                })
+            else:
                 entry = {
-                    "symbol":           sym,
-                    "name":             name,
-                    "date":             ed,
-                    "date_fmt":         ed.strftime("%a %d %b"),
-                    "release_time":     release_time,
-                    "release_label":    release_label,
-                    "eps_estimate":     f"${eps_est:.2f}" if eps_est is not None else "—",
-                    "rev_estimate":     _fmt_rev(rev_est),
-                    "eps_actual":       "—",
-                    "surprise":         "—",
-                    "beat":             None,
+                    "symbol":        sym,
+                    "name":          name,
+                    "date_fmt":      d.strftime("%a %d %b"),
+                    "release_time":  "—",
+                    "release_label": release_label,
+                    "eps_estimate":  f"${eps_est:.2f}" if eps_est is not None else "—",
+                    "rev_estimate":  "N/A",
+                    "eps_actual":    "—",
+                    "surprise":      "—",
+                    "beat":          None,
+                    "_sort_date":    d.isoformat(),
                 }
-                if ed == today:
+                if d == today:
                     earnings_today.append(entry)
                 else:
                     earnings_upcoming.append(entry)
-                break
 
-        except Exception:
-            continue
+    earnings_upcoming.sort(key=lambda x: x["_sort_date"])
+    for e in earnings_today + earnings_upcoming:
+        e.pop("_sort_date", None)
 
-    earnings_upcoming.sort(key=lambda x: x["date"])
-    print(f"[Extras] Earnings: {len(earnings_yesterday)} ieri (actuals), {len(earnings_today)} oggi, {len(earnings_upcoming)} prossimi 7gg")
-    return {
+    print(f"[Extras] Earnings: {len(earnings_yesterday)} yesterday (actuals), {len(earnings_today)} today, {len(earnings_upcoming)} next 7d")
+
+    result = {
         "yesterday": earnings_yesterday,
         "today":     earnings_today,
         "upcoming":  earnings_upcoming,
     }
+    _save_earnings_cache(result)
+    return result
 
 
 def _fmt_rev(val):
@@ -408,23 +510,23 @@ def get_asia_session():
     if valid:
         avg_pct = sum(v["pct"] for v in valid.values()) / len(valid)
         if avg_pct > 0.5:
-            tone = "Sessione asiatica positiva"
+            tone = "Positive Asian session"
         elif avg_pct < -0.5:
-            tone = "Sessione asiatica negativa"
+            tone = "Negative Asian session"
         else:
-            tone = "Sessione asiatica mista"
+            tone = "Mixed Asian session"
 
-        parts = [f"{tone} (media indici: {avg_pct:+.1f}%)."]
+        parts = [f"{tone} (average index: {avg_pct:+.1f}%)."]
         if any(v["pct"] < -0.3 for v in valid.values()):
             worst = min(valid.items(), key=lambda x: x[1]["pct"])
-            parts.append(f"Maggiore debolezza su {worst[0]} ({worst[1]['pct_fmt']}).")
+            parts.append(f"Biggest weakness in {worst[0]} ({worst[1]['pct_fmt']}).")
         if any(v["pct"] > 0.3 for v in valid.values()):
             best = max(valid.items(), key=lambda x: x[1]["pct"])
-            parts.append(f"Miglior performance su {best[0]} ({best[1]['pct_fmt']}).")
+            parts.append(f"Best performance in {best[0]} ({best[1]['pct_fmt']}).")
         if avg_pct < -1.0:
-            parts.append("Debolezza Asia = possibile pressione all'apertura europea/americana.")
+            parts.append("Asia weakness = possible pressure on European/US open.")
         elif avg_pct > 1.0:
-            parts.append("Forza Asia = supporto per apertura europea/americana.")
+            parts.append("Asia strength = support for European/US open.")
 
         # Add crypto context to analysis
         crypto_asia = results.get("_crypto_asia", {})
@@ -435,11 +537,11 @@ def get_asia_session():
                 if d:
                     c_parts.append(f"{sym} {d['pct_fmt']}")
             if c_parts:
-                parts.append(f"Crypto durante la sessione asiatica: {', '.join(c_parts)}.")
+                parts.append(f"Crypto during the Asian session: {', '.join(c_parts)}.")
 
         results["_analysis"] = " ".join(parts)
     else:
-        results["_analysis"] = "Dati Asia non disponibili."
+        results["_analysis"] = "Asia data not available."
 
     return results
 
