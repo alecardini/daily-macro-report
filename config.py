@@ -175,6 +175,7 @@ CALENDAR_WHITELIST = [
     "New Home Sales",          # USD
     "Crude Oil Inventories",   # EIA Weekly — Low on FF, kept via whitelist
     "Durable Goods Orders",    # USD — Low on FF, kept via whitelist
+    "Final GDP q/q",           # GBP — Low on FF, kept via whitelist
 ]
 
 # =============================================================================
@@ -193,6 +194,11 @@ CALENDAR_BLACKLIST = [
     "Italian 10-y Bond Auction",       # aste italiane non rilevanti
     "Revised UoM Consumer Sentiment",  # revisione secondaria
     "Revised UoM Inflation Expectations", # revisione secondaria
+    "Spanish Manufacturing PMI",
+    "Italian Manufacturing PMI",
+    "French Final Manufacturing PMI",
+    "German Final Manufacturing PMI",
+    "BOE Gov Bailey Speaks",
 ]
 
 # =============================================================================
@@ -209,6 +215,15 @@ CALENDAR_IMPACT_HIGH = [
     ("New Home Sales",          "USD"),   # USD
     ("Durable Goods Orders",    "USD"),   # USD (Core già in blacklist)
     ("Unemployment Claims",      "USD"),   # FF title → renamed to Initial Jobless Claims
+    ("Manufacturing PMI",        "CNY"),   # copre anche Non-Manufacturing PMI (CNY)
+    ("German Prelim CPI m/m",    "EUR"),
+    ("Chicago PMI",               "USD"),
+    ("CB Consumer Confidence",    "USD"),
+    ("JOLTS Job Openings",        "USD"),
+    ("Final GDP q/q",             "GBP"),
+    ("CPI Flash Estimate y/y",    "EUR"),   # copre anche Core CPI Flash Estimate y/y (EUR)
+    ("ADP Non-Farm Employment Change", "USD"),
+    ("ISM Manufacturing Prices",  "USD"),
 ]
 
 # =============================================================================
@@ -220,4 +235,11 @@ CALENDAR_IMPACT_MED = [
     ("CPI",                 "AUD"),   # AUD CPI → medio
     ("Employment Change",   "AUD"),   # AUD Employment → medio
     ("Unemployment Rate",   "AUD"),   # AUD Unemployment → medio
+    ("GDP m/m",                    "CAD"),
+    ("Final Manufacturing PMI",    "JPY"),
+    ("RatingDog Manufacturing PMI","CNY"),
+    ("Manufacturing PMI",          "CHF"),
+    ("Final Manufacturing PMI",    "EUR"),
+    ("Final Manufacturing PMI",    "GBP"),
+    ("Final Manufacturing PMI",    "USD"),
 ]
