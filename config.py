@@ -199,6 +199,19 @@ CALENDAR_BLACKLIST = [
     "French Final Manufacturing PMI",
     "German Final Manufacturing PMI",
     "BOE Gov Bailey Speaks",
+    "Spanish 10-y Bond Auction",
+    "French 10-y Bond Auction",
+]
+
+# =============================================================================
+# CALENDARIO — BLACKLIST EVENTI CON VALUTA
+# Stessa logica di CALENDAR_BLACKLIST ma filtra anche per valuta.
+# Formato: ("sottostringa_titolo", "VALUTA") — entrambi obbligatori.
+# Usato per escludere eventi con stesso titolo FF ma valuta diversa (es. 10-y Bond Auction JPY/GBP).
+# =============================================================================
+CALENDAR_BLACKLIST_CURRENCY = [
+    ("10-y Bond Auction", "JPY"),   # Japan bond auction
+    ("10-y Bond Auction", "GBP"),   # UK gilt auction
 ]
 
 # =============================================================================
@@ -236,6 +249,7 @@ CALENDAR_IMPACT_MED = [
     ("Employment Change",   "AUD"),   # AUD Employment → medio
     ("Unemployment Rate",   "AUD"),   # AUD Unemployment → medio
     ("GDP m/m",                    "CAD"),
+    ("Manufacturing PMI",          "CAD"),   # CAD Manufacturing PMI → medio
     ("Final Manufacturing PMI",    "JPY"),
     ("RatingDog Manufacturing PMI","CNY"),
     ("Manufacturing PMI",          "CHF"),

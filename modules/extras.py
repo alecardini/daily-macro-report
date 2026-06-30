@@ -262,6 +262,22 @@ def _parse_money(text):
         return None
 
 
+def _yf_earnings_fallback(sym):
+    """
+    Lightweight yfinance fallback for EPS + revenue estimates.
+    Called only when Nasdaq.com bulk API returns no epsForecast (mainly non-US companies).
+    """
+    try:
+        cal = yf.Ticker(sym).calendar
+        if isinstance(cal, dict):
+            eps = cal.get("Earnings Average") or cal.get("EPS Estimate")
+            rev = cal.get("Revenue Average") or cal.get("Revenue Estimate")
+            return eps, rev
+    except Exception:
+        pass
+    return None, None
+
+
 def _fetch_nasdaq_earnings_day(date_obj):
     """
     Bulk earnings calendar for a single date from Nasdaq.com public API.
@@ -341,14 +357,17 @@ def get_earnings_this_week():
                     "rev_estimate": "—",   # Nasdaq.com bulk calendar non fornisce revenue
                 })
             else:
+                yf_eps, yf_rev = None, None
+                if eps_est is None:
+                    yf_eps, yf_rev = _yf_earnings_fallback(sym)
                 entry = {
                     "symbol":        sym,
                     "name":          name,
                     "date_fmt":      d.strftime("%a %d %b"),
                     "release_time":  "—",
                     "release_label": release_label,
-                    "eps_estimate":  f"${eps_est:.2f}" if eps_est is not None else "—",
-                    "rev_estimate":  "N/A",
+                    "eps_estimate":  f"${yf_eps:.2f}" if yf_eps is not None else (f"${eps_est:.2f}" if eps_est is not None else "—"),
+                    "rev_estimate":  _fmt_rev(yf_rev) if yf_rev is not None else "N/A",
                     "eps_actual":    "—",
                     "surprise":      "—",
                     "beat":          None,

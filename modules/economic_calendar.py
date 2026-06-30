@@ -299,10 +299,11 @@ def _match_impact_override(overrides, title, currency):
 
 def _parse_ff_json(data, target_dates):
     """Parse Forex Factory JSON into {day_key: [events]} for target_dates."""
-    whitelist    = [w.lower() for w in getattr(config, "CALENDAR_WHITELIST", [])]
-    blacklist    = [w.lower() for w in getattr(config, "CALENDAR_BLACKLIST", [])]
-    high_force   = getattr(config, "CALENDAR_IMPACT_HIGH", [])
-    med_force    = getattr(config, "CALENDAR_IMPACT_MED", [])
+    whitelist         = [w.lower() for w in getattr(config, "CALENDAR_WHITELIST", [])]
+    blacklist         = [w.lower() for w in getattr(config, "CALENDAR_BLACKLIST", [])]
+    blacklist_currency = getattr(config, "CALENDAR_BLACKLIST_CURRENCY", [])
+    high_force        = getattr(config, "CALENDAR_IMPACT_HIGH", [])
+    med_force         = getattr(config, "CALENDAR_IMPACT_MED", [])
     result = {}
     for event in data:
         try:
@@ -312,6 +313,8 @@ def _parse_ff_json(data, target_dates):
 
             # Blacklist: escludi sempre questi eventi
             if any(b in title for b in blacklist):
+                continue
+            if _match_impact_override(blacklist_currency, title, currency):
                 continue
 
             in_whitelist = any(w in title for w in whitelist)
