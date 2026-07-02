@@ -226,10 +226,14 @@ def _nyse_early_closes_for_year(year: int) -> dict:
 
     # 1. Eve of Independence Day (3 luglio)
     jul4 = _date(year, 7, 4)
-    # weekday(): 0=Lun … 5=Sab, 6=Dom
-    # Se luglio 4 = domenica (6) → osservato lunedì 5, nessun early close il venerdì
-    # Se luglio 4 = lunedì (0)  → luglio 3 è domenica, non feriale → nessun early close
-    if jul4.weekday() not in (0, 6):
+    # weekday(): 0=Lun, 1=Mar, 2=Mer, 3=Gio, 4=Ven, 5=Sab, 6=Dom
+    # L'early close azionario del 3 luglio avviene SOLO se il 4 luglio è Mar–Ven (1-4),
+    # perché allora il 3 luglio è un normale giorno di borsa (Lun–Gio) prima della festività.
+    #   - 4 luglio = Sabato (5) → festività osservata VENERDÌ 3 → mercato CHIUSO tutto il giorno
+    #                             (la riga "CLOSED" arriva da Forex Factory), NIENTE early close
+    #   - 4 luglio = Domenica (6) → osservato lunedì 5, il 3 luglio è venerdì normale → niente early close
+    #   - 4 luglio = Lunedì (0) → il 3 luglio è domenica → niente early close
+    if jul4.weekday() in (1, 2, 3, 4):
         result[_date(year, 7, 3)] = ("19:00", "Eve of Independence Day")
 
     # 2. Black Friday (giorno dopo il 4° giovedì di novembre)

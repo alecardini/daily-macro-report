@@ -665,7 +665,7 @@ def render_earnings(earnings_data):
 
     # ── Ieri: actuals freschi ──
     if yesterday_list:
-        html += '<div class="earnings-section-label">📋 Yesterday\'s results (after market close)</div>'
+        html += '<div class="earnings-section-label">📋 Yesterday\'s results</div>'
         html += '<div class="etable">'
         html += _earnings_table_header()
         for e in yesterday_list:

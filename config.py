@@ -201,6 +201,8 @@ CALENDAR_BLACKLIST = [
     "BOE Gov Bailey Speaks",
     "Spanish 10-y Bond Auction",
     "French 10-y Bond Auction",
+    "German Final Services PMI",
+    "French Final Services PMI",
 ]
 
 # =============================================================================
@@ -256,4 +258,6 @@ CALENDAR_IMPACT_MED = [
     ("Final Manufacturing PMI",    "EUR"),
     ("Final Manufacturing PMI",    "GBP"),
     ("Final Manufacturing PMI",    "USD"),
+    ("Final Services PMI",         "EUR"),   # Eurozone Final Services PMI → medio
+    ("Final Services PMI",         "GBP"),   # UK Final Services PMI → medio
 ]

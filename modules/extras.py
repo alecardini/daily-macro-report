@@ -343,18 +343,25 @@ def get_earnings_this_week():
             if d == yesterday:
                 eps_actual = _parse_money(row.get("eps"))
                 surprise   = _parse_money(row.get("surprise"))
+                # Fallback yfinance quando Nasdaq.com non fornisce EPS est / revenue
+                # (tipico società estere del Nasdaq-100 con copertura scarsa).
+                yf_eps, yf_rev = None, None
+                if eps_est is None:
+                    yf_eps, yf_rev = _yf_earnings_fallback(sym)
+                eps_est_final = eps_est if eps_est is not None else yf_eps
                 beat = None
-                if eps_actual is not None and eps_est is not None and eps_est != 0:
-                    beat = eps_actual >= eps_est
+                if eps_actual is not None and eps_est_final is not None and eps_est_final != 0:
+                    beat = eps_actual >= eps_est_final
                 earnings_yesterday.append({
-                    "symbol":       sym,
-                    "name":         name,
-                    "date_fmt":     d.strftime("%a %d %b"),
-                    "eps_actual":   f"${eps_actual:.2f}" if eps_actual is not None else "—",
-                    "eps_estimate": f"${eps_est:.2f}"    if eps_est    is not None else "—",
-                    "surprise":     f"{surprise:+.1f}%"  if surprise  is not None else "—",
-                    "beat":         beat,
-                    "rev_estimate": "—",   # Nasdaq.com bulk calendar non fornisce revenue
+                    "symbol":        sym,
+                    "name":          name,
+                    "date_fmt":      d.strftime("%a %d %b"),
+                    "release_label": release_label,
+                    "eps_actual":    f"${eps_actual:.2f}"    if eps_actual    is not None else "—",
+                    "eps_estimate":  f"${eps_est_final:.2f}" if eps_est_final is not None else "—",
+                    "surprise":      f"{surprise:+.1f}%"     if surprise      is not None else "—",
+                    "beat":          beat,
+                    "rev_estimate":  _fmt_rev(yf_rev) if yf_rev is not None else "—",
                 })
             else:
                 yf_eps, yf_rev = None, None
