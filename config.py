@@ -214,6 +214,7 @@ CALENDAR_BLACKLIST = [
 CALENDAR_BLACKLIST_CURRENCY = [
     ("10-y Bond Auction", "JPY"),   # Japan bond auction
     ("10-y Bond Auction", "GBP"),   # UK gilt auction
+    ("30-y Bond Auction", "JPY"),   # Japan 30y bond auction (USD 30y resta visibile)
 ]
 
 # =============================================================================
@@ -239,6 +240,7 @@ CALENDAR_IMPACT_HIGH = [
     ("CPI Flash Estimate y/y",    "EUR"),   # copre anche Core CPI Flash Estimate y/y (EUR)
     ("ADP Non-Farm Employment Change", "USD"),
     ("ISM Manufacturing Prices",  "USD"),
+    ("Final Services PMI",        "USD"),   # US Final Services PMI → alto
 ]
 
 # =============================================================================
