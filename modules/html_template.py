@@ -423,6 +423,8 @@ def render_indices(indices, futures, yields, analysis_text=""):
 
     yld_html = '<div class="yields-grid">'
     for name, data in yields.items():
+        if name.startswith("_"):
+            continue  # _signals è renderizzato a parte
         if name == "2Y-10Y Spread":
             note = data.get("note","")
             note_cls = "negative" if note == "Inverted" else "positive"
@@ -434,14 +436,58 @@ def render_indices(indices, futures, yields, analysis_text=""):
                 <span class="source-tag">{data.get('source','FRED')}</span>
             </div>"""
         else:
+            change_disp = data.get('change_bps_fmt', data.get('change_fmt',''))
             yld_html += f"""
             <div class="yield-card">
                 <div class="yield-name">{name}</div>
                 <div class="yield-val {cc(data.get('direction','neutral'))}">{data.get('value_fmt','N/A')}</div>
-                <div class="yield-change">{data.get('change_fmt','')}</div>
+                <div class="yield-change">{change_disp}</div>
                 <span class="source-tag">{data.get('source','FRED')}</span>
             </div>"""
     yld_html += "</div>"
+
+    # ── Rate Signals & Credit Stress (FRED) ──
+    signals = yields.get("_signals") or {}
+    signals_html = ""
+    if any(signals.get(k) for k in ("spreads", "inflation", "credit")):
+        cards = ""
+        for nm, d in signals.get("spreads", {}).items():
+            cards += f"""
+            <div class="yield-card">
+                <div class="yield-cat">Curve</div>
+                <div class="yield-name">{nm}</div>
+                <div class="yield-val {d.get('dir','neutral')}">{d.get('value_fmt','N/A')}</div>
+                <div class="yield-note {d.get('dir','neutral')}">{d.get('note','')}</div>
+                <div class="yield-change">{d.get('change_bps_fmt','')}</div>
+            </div>"""
+        for nm, d in signals.get("inflation", {}).items():
+            cards += f"""
+            <div class="yield-card">
+                <div class="yield-cat">Inflation</div>
+                <div class="yield-name">{nm}</div>
+                <div class="yield-val {d.get('dir','neutral')}">{d.get('value_fmt','N/A')}</div>
+                <div class="yield-change">{d.get('change_bps_fmt','')}</div>
+            </div>"""
+        for nm, d in signals.get("credit", {}).items():
+            wid = "widening ▲" if d.get("widening") else "tightening ▼"
+            cards += f"""
+            <div class="yield-card">
+                <div class="yield-cat">Credit</div>
+                <div class="yield-name">{nm}</div>
+                <div class="yield-val {d.get('dir','neutral')}">{d.get('value_fmt','N/A')}</div>
+                <div class="yield-note {d.get('dir','neutral')}">{d.get('pctile_fmt','')} · {d.get('label','')}</div>
+                <div class="yield-change">{d.get('change_bps_fmt','')} · {wid}</div>
+            </div>"""
+        signals_html = f"""
+    <div class="subsection">
+        <h3 class="subsection-title">Rate Signals & Credit Stress — FRED</h3>
+        <div class="yields-grid">{cards}</div>
+        <div class="pc-note" style="margin-top:10px">
+            <strong>How to read:</strong> Curve spreads &lt;0 = inverted (recession signal, the 3m10y is the NY Fed's preferred gauge).
+            Real yield up = tighter financial conditions (headwind for risk assets). Breakeven = market-priced inflation.
+            Credit OAS shown as percentile vs its own history since 1997 — low percentile = tight/complacent, a widening move often precedes risk-off before equities react.
+        </div>
+    </div>"""
 
     return f"""
     {analysis_html}
@@ -456,7 +502,8 @@ def render_indices(indices, futures, yields, analysis_text=""):
     <div class="subsection">
         <h3 class="subsection-title">Treasury Yields (US) — FRED / Federal Reserve</h3>
         {yld_html}
-    </div>"""
+    </div>
+    {signals_html}"""
 
 
 # ─────────────────────────────────────────────────────────────
@@ -905,6 +952,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .yields-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}}
 .yield-card{{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center}}
 .spread-card{{border:1px solid var(--acc2)}}
+.yield-cat{{color:var(--acc);font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}}
 .yield-name{{color:var(--text2);font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:7px}}
 .yield-val{{font-size:20px;font-weight:700}}
 .yield-change{{color:var(--text3);font-size:10px;margin-top:3px}}

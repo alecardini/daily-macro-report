@@ -120,72 +120,140 @@ def get_futures():
 # TREASURY YIELDS (FRED API)
 # ─────────────────────────────────────────────────────────────
 
+_FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
+
+
+def _fred_obs(series_id, **extra):
+    """Fetch FRED observations (filtered of missing '.' values)."""
+    params = {"series_id": series_id, "api_key": config.FRED_API_KEY, "file_type": "json"}
+    params.update(extra)
+    resp = requests.get(_FRED_BASE_URL, params=params, timeout=15)
+    resp.raise_for_status()
+    return [o for o in resp.json().get("observations", []) if o["value"] not in (".", "")]
+
+
+def _fred_latest(series_id):
+    """(current, change_in_bps, date) from the last two observations."""
+    obs = _fred_obs(series_id, sort_order="desc", limit=5)
+    if not obs:
+        return None, None, None
+    cur = float(obs[0]["value"])
+    prev = float(obs[1]["value"]) if len(obs) > 1 else cur
+    return cur, (cur - prev) * 100, obs[0]["date"]
+
+
+def _fred_percentile(series_id, start="1997-01-01"):
+    """(current, change_in_bps, percentile_vs_history, date) using full history."""
+    obs = _fred_obs(series_id, observation_start=start, sort_order="asc")
+    if not obs:
+        return None, None, None, None
+    vals = [float(o["value"]) for o in obs]
+    cur = vals[-1]
+    prev = vals[-2] if len(vals) > 1 else cur
+    pctile = sum(1 for v in vals if v < cur) / len(vals) * 100
+    return cur, (cur - prev) * 100, pctile, obs[-1]["date"]
+
+
+def _curve_note(val):
+    """Yield-curve spread interpretation. Structural thresholds (0 = inversion)."""
+    if val < 0:
+        return "Inverted", "negative"      # segnale recessione
+    elif val < 0.5:
+        return "Flat", "neutral"
+    else:
+        return "Normal", "positive"
+
+
+def _credit_label(pctile):
+    """Credit-spread interpretation via percentile-vs-history (institutional method)."""
+    if pctile < 20:
+        return "Tight", "positive"          # compresso / compiacente
+    elif pctile < 80:
+        return "Normal", "neutral"
+    elif pctile < 95:
+        return "Elevated", "negative"
+    else:
+        return "Stress", "warning"
+
+
 def get_treasury_yields():
     """
-    Fetch US Treasury yields from FRED (Federal Reserve official data).
-    Returns 2Y, 10Y, 30Y yields and 2-10 spread.
+    US Treasury yields + curve signals + real/breakeven + credit spreads, from FRED.
+    Returns the yield curve as flat keys, plus a '_signals' dict with:
+    spreads (2s10s, 3m10y), inflation (real yield, breakeven), credit (HY/IG OAS percentile).
     """
-    print("[MarketData] Fetching Treasury yields from FRED...")
+    print("[MarketData] Fetching Treasury yields + credit from FRED...")
 
     if not config.FRED_API_KEY or config.FRED_API_KEY == "YOUR_FRED_API_KEY_HERE":
         print("[MarketData] FRED API key not configured, using yfinance fallback.")
         return get_treasury_yields_yf()
 
     yields = {}
-    base_url = "https://api.stlouisfed.org/fred/series/observations"
 
+    # ── Curva completa ──
     for name, series_id in config.TREASURY_SERIES.items():
         try:
-            resp = requests.get(
-                base_url,
-                params={
-                    "series_id": series_id,
-                    "api_key": config.FRED_API_KEY,
-                    "file_type": "json",
-                    "limit": 5,
-                    "sort_order": "desc",
-                },
-                timeout=10,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            obs = [o for o in data["observations"] if o["value"] != "."]
-
-            if obs:
-                current_val = float(obs[0]["value"])
-                prev_val = float(obs[1]["value"]) if len(obs) > 1 else current_val
-                change = current_val - prev_val
-                direction = "up" if change > 0 else "down" if change < 0 else "neutral"
-
+            cur, chg_bps, date = _fred_latest(series_id)
+            if cur is not None:
+                direction = "up" if chg_bps > 0 else "down" if chg_bps < 0 else "neutral"
                 yields[name] = {
-                    "value": current_val,
-                    "value_fmt": f"{current_val:.3f}%",
-                    "change": change,
-                    "change_fmt": f"{'+' if change >= 0 else ''}{change:.3f}%",
+                    "value": cur,
+                    "value_fmt": f"{cur:.2f}%",
+                    "change_bps_fmt": f"{chg_bps:+.0f}bp",
                     "direction": direction,
-                    "date": obs[0]["date"],
-                    "source": "FRED (Federal Reserve)",
+                    "date": date,
+                    "source": "FRED",
                 }
+            else:
+                yields[name] = {"value": None, "value_fmt": "N/A", "direction": "neutral"}
         except Exception as e:
             print(f"[MarketData] FRED error for {series_id}: {e}")
             yields[name] = {"value": None, "value_fmt": "N/A", "direction": "neutral"}
 
-    # Calculate 2Y-10Y spread (yield curve)
-    try:
-        y2 = yields.get("2Y Yield", {}).get("value")
-        y10 = yields.get("10Y Yield", {}).get("value")
-        if y2 and y10:
-            spread = y10 - y2
-            yields["2Y-10Y Spread"] = {
-                "value": spread,
-                "value_fmt": f"{'+' if spread >= 0 else ''}{spread:.3f}%",
-                "direction": "up" if spread > 0 else "down",
-                "note": "Inverted" if spread < 0 else "Normal",
-                "source": "Calculated from FRED",
-            }
-    except Exception:
-        pass
+    # ── Signals: curve spreads + inflation + credit ──
+    signals = {"spreads": {}, "inflation": {}, "credit": {}}
 
+    for name, sid in getattr(config, "FRED_CURVE_SPREADS", {}).items():
+        try:
+            cur, chg_bps, _ = _fred_latest(sid)
+            if cur is not None:
+                note, note_cls = _curve_note(cur)
+                signals["spreads"][name] = {
+                    "value_fmt": f"{'+' if cur >= 0 else ''}{cur:.2f}%",
+                    "change_bps_fmt": f"{chg_bps:+.0f}bp",
+                    "note": note, "dir": note_cls,
+                }
+        except Exception as e:
+            print(f"[MarketData] FRED spread error {sid}: {e}")
+
+    for name, sid in getattr(config, "FRED_INFLATION", {}).items():
+        try:
+            cur, chg_bps, _ = _fred_latest(sid)
+            if cur is not None:
+                signals["inflation"][name] = {
+                    "value_fmt": f"{cur:.2f}%",
+                    "change_bps_fmt": f"{chg_bps:+.0f}bp",
+                    "dir": "up" if chg_bps > 0 else "down" if chg_bps < 0 else "neutral",
+                }
+        except Exception as e:
+            print(f"[MarketData] FRED inflation error {sid}: {e}")
+
+    for name, sid in getattr(config, "FRED_CREDIT", {}).items():
+        try:
+            cur, chg_bps, pctile, _ = _fred_percentile(sid)
+            if cur is not None:
+                label, label_cls = _credit_label(pctile)
+                signals["credit"][name] = {
+                    "value_fmt": f"{cur:.2f}%",
+                    "pctile_fmt": f"{pctile:.0f}th pctile",
+                    "label": label, "dir": label_cls,
+                    "change_bps_fmt": f"{chg_bps:+.0f}bp",
+                    "widening": chg_bps > 0,
+                }
+        except Exception as e:
+            print(f"[MarketData] FRED credit error {sid}: {e}")
+
+    yields["_signals"] = signals
     return yields
 
 

@@ -13,7 +13,7 @@ NEWSAPI_KEY = "YOUR_NEWSAPI_KEY_HERE"
 # --- FRED API (Federal Reserve) ---
 # Registrati gratis su https://fred.stlouisfed.org/docs/api/api_key.html
 # Completamente gratuito, nessun limite pratico
-FRED_API_KEY = "YOUR_FRED_API_KEY_HERE"
+FRED_API_KEY = "6aafffc0609d4698f7dd3b050e831e34"
 
 # --- COINMARKETCAP API (per F&G Index) ---
 # Registrati gratis su https://pro.coinmarketcap.com/account → piano Basic (gratuito)
@@ -96,11 +96,31 @@ GOLD_ETFS = {
     "IAU (iShares Gold)": "IAU",
 }
 
-# FRED Series IDs per i Treasury yield
+# FRED Series IDs per i Treasury yield — curva completa
 TREASURY_SERIES = {
-    "2Y Yield": "DGS2",
+    "3M Yield":  "DGS3MO",
+    "2Y Yield":  "DGS2",
+    "5Y Yield":  "DGS5",
     "10Y Yield": "DGS10",
     "30Y Yield": "DGS30",
+}
+
+# Curve signals — spread già calcolati da FRED (segnali recessione)
+FRED_CURVE_SPREADS = {
+    "2s10s": "T10Y2Y",   # 10Y - 2Y
+    "3m10y": "T10Y3M",   # 10Y - 3M (modello recessione NY Fed)
+}
+
+# Real yield & breakeven inflation (TIPS) — crescita vs inflazione
+FRED_INFLATION = {
+    "10Y Real Yield": "DFII10",
+    "10Y Breakeven":  "T10YIE",
+}
+
+# Credit spreads (OAS) — mostrati come percentile vs storia
+FRED_CREDIT = {
+    "HY OAS": "BAMLH0A0HYM2",
+    "IG OAS": "BAMLC0A0CM",
 }
 
 # =============================================================================
