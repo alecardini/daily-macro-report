@@ -116,13 +116,105 @@ def get_deribit_pc_ratio(currency="BTC"):
         return {"currency": currency, "pc_volume_fmt": "N/A", "pc_oi_fmt": "N/A", "source": "Deribit"}
 
 
+# ─────────────────────────────────────────────────────────────
+# DERIBIT: DVOL (implied volatility index — the "crypto VIX")
+# ─────────────────────────────────────────────────────────────
+
+_DVOL_CACHE_TTL = 4 * 3600  # 4h, come il P/C
+
+def _dvol_cache_path(currency):
+    return f"/tmp/deribit_dvol_{currency.lower()}_cache.json"
+
+def _load_dvol_cache(currency):
+    try:
+        with open(_dvol_cache_path(currency)) as f:
+            cached = json.load(f)
+        age = time.time() - cached.get("_ts", 0)
+        return cached.get("data"), age
+    except Exception:
+        return None, None
+
+def _save_dvol_cache(currency, data):
+    try:
+        with open(_dvol_cache_path(currency), "w") as f:
+            json.dump({"_ts": time.time(), "data": data}, f)
+    except Exception:
+        pass
+
+# Soglie DVOL separate per asset (ETH gira strutturalmente ~+12 pt su BTC)
+_DVOL_BANDS = {
+    "BTC": (40, 55, 70),
+    "ETH": (52, 67, 82),
+}
+
+def _interpret_dvol(currency, value):
+    if value is None:
+        return "N/A", "neutral"
+    low, normal, elevated = _DVOL_BANDS.get(currency, _DVOL_BANDS["BTC"])
+    if value < low:
+        return "Low Vol / Complacency", "positive"
+    elif value < normal:
+        return "Normal Range", "neutral"
+    elif value < elevated:
+        return "Elevated / Rising Stress", "negative"
+    else:
+        return "High Vol / Fear Priced In", "warning"
+
+def get_dvol(currency="BTC"):
+    """
+    Deribit DVOL — 30-day implied volatility index (the 'crypto VIX') for BTC/ETH.
+    API pubblica, no key. Cache 4h + fallback stale (max 24h) come il P/C ratio.
+    """
+    cached_data, cache_age = _load_dvol_cache(currency)
+    try:
+        now   = int(time.time() * 1000)
+        start = now - 2 * 24 * 3600 * 1000  # finestra 48h
+        resp = requests.get(
+            "https://www.deribit.com/api/v2/public/get_volatility_index_data",
+            params={"currency": currency, "start_timestamp": start,
+                    "end_timestamp": now, "resolution": "3600"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=12,
+        )
+        resp.raise_for_status()
+        candles = resp.json().get("result", {}).get("data", [])
+        if not candles:
+            raise ValueError("empty DVOL data")
+
+        latest = candles[-1][4]  # close dell'ultima candela oraria
+        # valore ~24h fa: candela 25 posizioni indietro (24h + corrente), close per coerenza
+        idx_24h = -25 if len(candles) >= 25 else 0
+        ago_24h = candles[idx_24h][4]
+        change  = latest - ago_24h
+        label, direction = _interpret_dvol(currency, latest)
+
+        result = {
+            "dvol":            round(latest, 2),
+            "dvol_fmt":        f"{latest:.1f}",
+            "dvol_change":     round(change, 2),
+            "dvol_change_fmt": f"{change:+.1f}",
+            "dvol_label":      label,
+            "dvol_dir":        direction,
+        }
+        _save_dvol_cache(currency, result)
+        return result
+    except Exception as e:
+        print(f"[Extras] Deribit DVOL error ({currency}): {e}")
+        if cached_data and cache_age is not None and cache_age < 24 * 3600:
+            print(f"[Extras] DVOL {currency}: using cache ({int(cache_age/3600)}h old) as fallback")
+            return cached_data
+        return {"dvol_fmt": "N/A", "dvol_change_fmt": "—", "dvol_label": "N/A", "dvol_dir": "neutral"}
+
+
 def get_pc_ratios():
-    """BTC + ETH Put/Call ratios."""
-    print("[Extras] Fetching Deribit P/C ratios...")
-    return {
-        "BTC": get_deribit_pc_ratio("BTC"),
-        "ETH": get_deribit_pc_ratio("ETH"),
-    }
+    """BTC + ETH Put/Call ratios + DVOL (implied vol index)."""
+    print("[Extras] Fetching Deribit P/C ratios + DVOL...")
+    result = {}
+    for cur in ("BTC", "ETH"):
+        d = get_deribit_pc_ratio(cur)
+        d.update(get_dvol(cur))
+        result[cur] = d
+    return result
 
 
 # ─────────────────────────────────────────────────────────────

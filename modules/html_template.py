@@ -570,6 +570,11 @@ def render_pc_ratios(pc_data):
         vol_lbl = d.get("pc_volume_label", "")
         oi_lbl  = d.get("pc_oi_label", "")
 
+        dvol      = d.get("dvol_fmt", "N/A")
+        dvol_chg  = d.get("dvol_change_fmt", "")
+        dvol_dir  = d.get("dvol_dir", "neutral")
+        dvol_lbl  = d.get("dvol_label", "")
+
         html += f"""
         <div class="pc-card">
             <div class="pc-header">{sym} — Put/Call Ratio</div>
@@ -582,6 +587,11 @@ def render_pc_ratios(pc_data):
                 <span class="pc-label">P/C Open Interest</span>
                 <span class="pc-val {oi_dir}">{pc_oi}</span>
                 <span class="pc-interp">{oi_lbl}</span>
+            </div>
+            <div class="pc-row">
+                <span class="pc-label">DVOL (implied vol)</span>
+                <span class="pc-val {dvol_dir}">{dvol} <span class="dvol-chg">{dvol_chg} 24h</span></span>
+                <span class="pc-interp">{dvol_lbl}</span>
             </div>
             <div class="pc-scale">
                 <span class="warning">&lt;0.40 Euphoria</span>
@@ -599,6 +609,9 @@ def render_pc_ratios(pc_data):
         &lt;0.40 = call euphoria, possible top. &gt;1.20 = put panic, possible bottom.
         The "neutral" baseline in crypto is ~0.70 (not 1.0 as in equity).
         Volume P/C = intraday sentiment. OI P/C = institutional structural positioning.
+        <br><strong>DVOL</strong> = Deribit's 30-day implied volatility index (the "crypto VIX", annualized %):
+        low = complacency (cheap hedges, often precedes sharp moves), high = fear already priced in.
+        ETH runs structurally higher than BTC, so thresholds are asset-specific.
     </div>"""
     return html
 
@@ -969,6 +982,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .pc-interp{{font-size:9px;color:var(--text2);flex:1;text-align:right}}
 .pc-scale{{display:flex;justify-content:space-between;font-size:8px;border-top:1px solid var(--border);padding-top:8px;margin-top:8px}}
 .pc-note{{background:var(--bg3);border-radius:6px;padding:10px 14px;font-size:10px;color:var(--text3);line-height:1.6}}
+.dvol-chg{{font-size:9px;font-weight:600;color:var(--text3)}}
 
 /* EARNINGS */
 .earnings-urgent{{background:#f5a62311;border:1px solid #f5a62344;border-radius:8px;padding:12px 16px;margin-bottom:16px}}
