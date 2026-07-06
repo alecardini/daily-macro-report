@@ -61,7 +61,7 @@ def main():
         get_us_indices, get_futures, get_treasury_yields,
         get_other_assets, get_gold_etf_data, get_all_sentiment, get_sector_rotation
     )
-    from modules.crypto_data import get_all_crypto_data
+    from modules.crypto_data import get_all_crypto_data, get_stablecoin_liquidity
     from modules.extras import get_pc_ratios, get_earnings_this_week, get_asia_session, get_combined_crypto_fg
     from modules.analysis import (
         analyze_crypto, analyze_us_indices, analyze_asset, analyze_sentiment
@@ -87,11 +87,12 @@ def main():
             data[fmap[future]] = future.result()
 
     # Extras paralleli (leggeri)
-    with ThreadPoolExecutor(max_workers=3) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:
         fmap2 = {
             ex.submit(fetch, "Deribit P/C Ratio", get_pc_ratios): "pc_ratios",
             ex.submit(fetch, "Earnings Calendario", get_earnings_this_week): "earnings",
             ex.submit(fetch, "F&G Combinato", get_combined_crypto_fg): "_combined_fg",
+            ex.submit(fetch, "Stablecoin Liquidity", get_stablecoin_liquidity): "stablecoin",
         }
         for future in as_completed(fmap2):
             data[fmap2[future]] = future.result()

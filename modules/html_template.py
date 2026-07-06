@@ -601,6 +601,42 @@ def render_asia(asia_data):
 
 
 # ─────────────────────────────────────────────────────────────
+# STABLECOIN LIQUIDITY (DefiLlama)
+# ─────────────────────────────────────────────────────────────
+
+def render_stablecoin_liquidity(d):
+    if not d or d.get("total_fmt") in (None, "N/A"):
+        return "<p class='no-data'>Stablecoin data not available.</p>"
+    bd = " · ".join(f"{b['symbol']} {b['cap_fmt']}" for b in d.get("breakdown", []))
+    return f"""
+    <div class="yields-grid">
+        <div class="yield-card">
+            <div class="yield-cat">Liquidity</div>
+            <div class="yield-name">Total Supply</div>
+            <div class="yield-val neutral">{d.get('total_fmt','N/A')}</div>
+            <div class="yield-change">{bd}</div>
+        </div>
+        <div class="yield-card">
+            <div class="yield-cat">Flow</div>
+            <div class="yield-name">Netflow 7d</div>
+            <div class="yield-val {d.get('nf7_dir','neutral')}">{d.get('nf7_pct_fmt','—')}</div>
+            <div class="yield-change">{d.get('nf7_abs_fmt','')}</div>
+        </div>
+        <div class="yield-card">
+            <div class="yield-cat">Flow</div>
+            <div class="yield-name">Netflow 30d</div>
+            <div class="yield-val {d.get('nf30_dir','neutral')}">{d.get('nf30_pct_fmt','—')}</div>
+            <div class="yield-note {d.get('nf30_dir','neutral')}">{d.get('nf30_abs_fmt','')} · {d.get('pctile_fmt','')} · {d.get('label','')}</div>
+        </div>
+    </div>
+    <div class="pc-note" style="margin-top:10px">
+        <strong>How to read:</strong> Total stablecoin supply is the "dry powder" in the crypto system.
+        Expanding = fiat entering (structural tailwind); contracting = liquidity leaving (headwind).
+        Slow structural signal — watch the trend, not a single day. Supply normally drifts up ~+1–3%/month, so flat-to-negative is already below trend. Percentile is vs full DefiLlama history.
+    </div>"""
+
+
+# ─────────────────────────────────────────────────────────────
 # DERIBIT P/C RATIO
 # ─────────────────────────────────────────────────────────────
 
@@ -828,6 +864,7 @@ def generate_html(data):
     cb_news_html  = render_news_section(data.get("cb_news", []), "No central bank news in the last 48h.")
     sentiment_html = render_sentiment(data.get("sentiment", {}), vix_data, analyses.get("sentiment",""))
     crypto_html   = render_crypto(data.get("crypto", {}), analyses.get("crypto",{}))
+    stablecoin_html = render_stablecoin_liquidity(data.get("stablecoin", {}))
     indices_html  = render_indices(data.get("indices",{}), data.get("futures",{}), data.get("yields",{}), analyses.get("indices",""))
     asia_html     = render_asia(data.get("asia", {}))
     assets_html   = render_other_assets(data.get("other_assets",{}), data.get("gold_etf",{}), analyses.get("assets",{}))
@@ -1145,6 +1182,15 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
     <span class="section-sub">CoinGecko · farside.co.uk (ETF flows) · CoinGlass</span>
   </div>
   <div class="section-body">{crypto_html}</div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-icon">💧</span>
+    <span class="section-title">Stablecoin Liquidity</span>
+    <span class="section-sub">Dry powder proxy — DefiLlama</span>
+  </div>
+  <div class="section-body">{stablecoin_html}</div>
 </div>
 
 <div class="section">

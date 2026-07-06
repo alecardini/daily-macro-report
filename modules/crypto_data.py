@@ -618,3 +618,98 @@ def get_all_crypto_data():
         "liquidations": liquidations,
         "fear_greed": fear_greed,
     }
+
+
+# ─────────────────────────────────────────────────────────────
+# STABLECOIN LIQUIDITY (DefiLlama) — proxy della "dry powder" crypto
+# ─────────────────────────────────────────────────────────────
+
+_STABLE_CACHE_PATH = "/tmp/stablecoin_liquidity_cache.json"
+_STABLE_CACHE_TTL = 6 * 3600  # 6h
+
+def _load_stable_cache():
+    try:
+        with open(_STABLE_CACHE_PATH) as f:
+            c = json.load(f)
+        return c.get("data"), time.time() - c.get("_ts", 0)
+    except Exception:
+        return None, None
+
+def _save_stable_cache(data):
+    try:
+        with open(_STABLE_CACHE_PATH, "w") as f:
+            json.dump({"_ts": time.time(), "data": data}, f)
+    except Exception:
+        pass
+
+def _stable_label(pct30):
+    """Soglie data-driven dalla distribuzione netflow 30g ultimi 12 mesi (DefiLlama).
+    La supply ha drift strutturale ~+1.3%/mese, quindi il neutro NON è zero."""
+    if pct30 < -0.5:
+        return "Liquidity Contracting", "negative"   # quintile basso → headwind
+    elif pct30 <= 5.0:
+        return "Normal", "neutral"                     # in linea col drift
+    else:
+        return "Liquidity Expanding", "positive"       # quintile alto → tailwind
+
+def get_stablecoin_liquidity():
+    """
+    Total stablecoin supply (USDT+USDC+...) + 7d/30d netflows da DefiLlama.
+    Proxy della liquidità / dry powder che entra o esce dal sistema crypto.
+    Tier A, no key. Cache 6h + fallback stale (max 24h). Percentile netflow 30g vs storia.
+    """
+    cached, age = _load_stable_cache()
+    try:
+        h = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get("https://stablecoins.llama.fi/stablecoincharts/all", headers=h, timeout=20)
+        r.raise_for_status()
+        data = r.json()
+
+        def tot(x):
+            p = x.get("totalCirculatingUSD", {})
+            return sum(p.values()) if isinstance(p, dict) else float(p)
+
+        series = [tot(x) for x in data if tot(x) > 0]
+        cur = series[-1]
+        d7  = series[-8]  if len(series) >= 8  else series[0]
+        d30 = series[-31] if len(series) >= 31 else series[0]
+        nf7_pct  = (cur - d7)  / d7  * 100 if d7  else 0
+        nf30_pct = (cur - d30) / d30 * 100 if d30 else 0
+
+        # percentile del netflow 30g corrente vs tutta la storia DefiLlama
+        hist30 = [(series[i] - series[i-30]) / series[i-30] * 100
+                  for i in range(30, len(series)) if series[i-30] > 0]
+        pctile = sum(1 for v in hist30 if v < nf30_pct) / len(hist30) * 100 if hist30 else None
+        label, direction = _stable_label(nf30_pct)
+
+        # breakdown top-3 stablecoin
+        breakdown = []
+        try:
+            r2 = requests.get("https://stablecoins.llama.fi/stablecoins?includePrices=true", headers=h, timeout=20)
+            pegged = r2.json().get("peggedAssets", [])
+            top = sorted(pegged, key=lambda a: a.get("circulating", {}).get("peggedUSD", 0), reverse=True)[:3]
+            breakdown = [{"symbol": a["symbol"], "cap_fmt": f"${a['circulating']['peggedUSD']/1e9:.0f}B"} for a in top]
+        except Exception:
+            pass
+
+        result = {
+            "total_fmt":    f"${cur/1e9:.1f}B",
+            "nf7_pct_fmt":  f"{nf7_pct:+.2f}%",
+            "nf7_abs_fmt":  f"${(cur-d7)/1e9:+.1f}B",
+            "nf7_dir":      "positive" if nf7_pct > 0 else "negative" if nf7_pct < 0 else "neutral",
+            "nf30_pct_fmt": f"{nf30_pct:+.2f}%",
+            "nf30_abs_fmt": f"${(cur-d30)/1e9:+.1f}B",
+            "nf30_dir":     direction,
+            "pctile_fmt":   f"{pctile:.0f}th pctile" if pctile is not None else "",
+            "label":        label,
+            "breakdown":    breakdown,
+            "source":       "DefiLlama",
+        }
+        _save_stable_cache(result)
+        return result
+    except Exception as e:
+        print(f"[Crypto] Stablecoin liquidity error: {e}")
+        if cached and age is not None and age < 24 * 3600:
+            print(f"[Crypto] Stablecoin: using cache ({int(age/3600)}h old) as fallback")
+            return cached
+        return {"total_fmt": "N/A", "label": "data not available", "breakdown": [], "source": "DefiLlama"}
