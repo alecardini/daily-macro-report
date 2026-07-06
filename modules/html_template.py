@@ -886,6 +886,81 @@ def render_sector_rotation(sr_data):
 
 
 # ─────────────────────────────────────────────────────────────
+# OVERNIGHT CROSS-ASSET RECAP (synthesis layer — riusa i dati già raccolti, nessun re-fetch)
+# ─────────────────────────────────────────────────────────────
+
+def _overnight_regime(futures, crypto, fx):
+    """Lettura del regime data-driven da equity futures + crypto (nessun driver news fabbricato)."""
+    score = signals = 0
+    for d in futures.values():
+        dr = (d or {}).get("direction")
+        if dr == "up": score += 1; signals += 1
+        elif dr == "down": score -= 1; signals += 1
+    for k in ("BTC", "ETH"):
+        dr = (crypto.get(k) or {}).get("direction")
+        if dr == "up": score += 1; signals += 1
+        elif dr == "down": score -= 1; signals += 1
+    if signals == 0:
+        return "Overnight recap — data not available"
+    ratio = score / signals
+    tone = "Risk-on overnight" if ratio > 0.4 else "Risk-off overnight" if ratio < -0.4 else "Mixed overnight"
+    jpy = fx.get("USD/JPY") or {}
+    if jpy.get("direction") == "up":
+        tone += " · yen weaker (carry-on)"
+    elif jpy.get("direction") == "down":
+        tone += " · yen stronger (carry unwind)"
+    return tone
+
+
+def render_overnight_recap(data):
+    futures = data.get("futures", {}) or {}
+    yields  = data.get("yields", {}) or {}
+    fx      = data.get("fx", {}) or {}
+    assets  = data.get("other_assets", {}) or {}
+    crypto  = (data.get("crypto", {}) or {}).get("prices", {}) or {}
+
+    def chip(label, change, direction):
+        dr = direction or "neutral"
+        return f'<span class="ovr-chip"><span class="ovr-lbl">{label}</span><span class="ovr-val {cc(dr)}">{arrow(dr)} {change}</span></span>'
+
+    groups = []
+    eq = [chip(s, futures[k]["pct_fmt"], futures[k].get("direction"))
+          for k, s in [("S&P 500 Futures","S&P"), ("Nasdaq Futures","Nasdaq"), ("Dow Futures","Dow")]
+          if futures.get(k) and futures[k].get("pct_fmt","N/A") != "N/A"]
+    if eq: groups.append(("Equity Futures", eq))
+
+    rt = [chip(s, yields[k]["change_bps_fmt"], yields[k].get("direction"))
+          for k, s in [("2Y Yield","2Y"), ("10Y Yield","10Y")]
+          if yields.get(k) and yields[k].get("change_bps_fmt")]
+    if rt: groups.append(("Rates", rt))
+
+    fxg = [chip(k, fx[k]["pct_fmt"], fx[k].get("direction"))
+           for k in ("USD/JPY", "EUR/USD")
+           if fx.get(k) and fx[k].get("pct_fmt","N/A") != "N/A"]
+    if fxg: groups.append(("FX", fxg))
+
+    cm = [chip(s, assets[k]["pct_fmt"], assets[k].get("direction"))
+          for k, s in [("Gold","Gold"), ("WTI Crude Oil","WTI")]
+          if assets.get(k) and assets[k].get("pct_fmt","N/A") != "N/A"]
+    if cm: groups.append(("Commodities", cm))
+
+    cr = [chip(k, crypto[k]["change_24h_fmt"], crypto[k].get("direction"))
+          for k in ("BTC", "ETH")
+          if crypto.get(k) and crypto[k].get("change_24h_fmt")]
+    if cr: groups.append(("Crypto", cr))
+
+    if not groups:
+        return ""
+
+    regime = _overnight_regime(futures, crypto, fx)
+    cols = "".join(
+        f'<div class="ovr-group"><div class="ovr-gt">{title}</div><div class="ovr-chips">{"".join(chips)}</div></div>'
+        for title, chips in groups
+    )
+    return f'<div class="ovr-regime">{regime}</div><div class="ovr-wrap">{cols}</div>'
+
+
+# ─────────────────────────────────────────────────────────────
 # FULL HTML
 # ─────────────────────────────────────────────────────────────
 
@@ -897,6 +972,7 @@ def generate_html(data):
     analyses = data.get("analyses", {})
     vix_data = data.get("indices", {}).get("VIX", {})
 
+    overnight_html = render_overnight_recap(data)
     earnings_html = render_earnings(data.get("earnings", {}))
     cal_html      = render_calendar(data.get("calendar", {}))
     news_html     = render_news_section(data.get("news", []))
@@ -1098,6 +1174,16 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .cal-day-header:first-child{{border-top:none;margin-top:0;padding-top:0}}
 .day-today-badge{{background:var(--pos);color:#000;padding:1px 7px;border-radius:10px;font-size:8px;font-weight:700;margin-left:8px;vertical-align:middle}}
 
+/* OVERNIGHT CROSS-ASSET RECAP */
+.ovr-regime{{font-size:13px;font-weight:700;color:var(--text);margin-bottom:14px;letter-spacing:.3px}}
+.ovr-wrap{{display:flex;flex-wrap:wrap;gap:22px}}
+.ovr-group{{min-width:110px}}
+.ovr-gt{{font-size:8px;font-weight:700;color:var(--acc);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:7px}}
+.ovr-chips{{display:flex;flex-wrap:wrap;gap:6px}}
+.ovr-chip{{display:flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:5px 10px;font-size:11px}}
+.ovr-lbl{{color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.5px}}
+.ovr-val{{font-weight:700}}
+
 /* PUT/CALL RATIO */
 .pc-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:14px}}
 .pc-card{{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px}}
@@ -1171,6 +1257,15 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 </div>
 
 <div class="container">
+
+{f'''<div class="section">
+  <div class="section-header">
+    <span class="section-icon">🌍</span>
+    <span class="section-title">Overnight Cross-Asset Recap</span>
+    <span class="section-sub">Overnight moves — reused from sections below (no re-fetch)</span>
+  </div>
+  <div class="section-body">{overnight_html}</div>
+</div>''' if overnight_html else ''}
 
 <div class="section">
   <div class="section-header">
