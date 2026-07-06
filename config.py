@@ -261,6 +261,7 @@ CALENDAR_IMPACT_HIGH = [
     ("ADP Non-Farm Employment Change", "USD"),
     ("ISM Manufacturing Prices",  "USD"),
     ("Final Services PMI",        "USD"),   # US Final Services PMI → alto
+    ("10-y Bond Auction",         "USD"),   # 10-Year Note Auction USD → alto
 ]
 
 # =============================================================================
