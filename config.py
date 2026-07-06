@@ -26,6 +26,11 @@ CMC_API_KEY = "00745888af784577bfda8bf40cb81863"
 # Fornisce dati liquidazioni BTC/ETH/SOL e open interest
 COINGLASS_API_KEY = "YOUR_COINGLASS_API_KEY_HERE"
 
+# --- COINALYZE API (derivati crypto aggregati) ---
+# Registrati gratis su https://coinalyze.net → genera API key (free tier, 40 req/min)
+# Sostituto di CoinGlass: funding rate, open interest, liquidazioni 24h aggregati multi-exchange
+COINALYZE_API_KEY = "1434edfb-bf93-4be7-a5cc-cdea8ddc385d"
+
 # =============================================================================
 # IMPOSTAZIONI REPORT
 # =============================================================================

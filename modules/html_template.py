@@ -324,6 +324,10 @@ def render_crypto(crypto_data, analyses=None):
         oi = liq.get("open_interest")
         fr_dir = liq.get("funding_direction", "neutral")
         fr_note = liq.get("funding_note", "")
+        oi_chg = liq.get("oi_change_fmt", "")
+        oi_chg_dir = liq.get("oi_change_dir", "neutral")
+        fi_source = liq.get("source", "Binance FAPI (public)")
+        oi_chg_html = f' <span class="{oi_chg_dir}" style="font-size:9px">{oi_chg} 24h</span>' if oi_chg else ""
         if fr and fr != "N/A":
             fi_html = f"""
             <div class="fi-block">
@@ -334,9 +338,9 @@ def render_crypto(crypto_data, analyses=None):
                 <div class="fi-note">{fr_note}</div>
                 <div class="fi-row">
                     <span class="fi-label">Open Interest</span>
-                    <span>{oi or 'N/A'}</span>
+                    <span>{oi or 'N/A'}{oi_chg_html}</span>
                 </div>
-                <span class="source-tag">Binance FAPI (public)</span>
+                <span class="source-tag">{fi_source}</span>
             </div>"""
 
         # Liquidations block
@@ -354,7 +358,7 @@ def render_crypto(crypto_data, analyses=None):
                     <span class="positive">Long: {liq.get('long_24h','—')}</span>
                     <span class="negative">Short: {liq.get('short_24h','—')}</span>
                 </div>
-                <span class="source-tag">CoinGlass</span>
+                <span class="source-tag">{liq.get('source','Coinalyze')}</span>
             </div>"""
         else:
             liq_url = liq.get("url", "https://www.coinglass.com/LiquidationData")
@@ -1179,7 +1183,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
   <div class="section-header">
     <span class="section-icon">₿</span>
     <span class="section-title">Crypto — BTC · ETH · SOL</span>
-    <span class="section-sub">CoinGecko · farside.co.uk (ETF flows) · CoinGlass</span>
+    <span class="section-sub">CoinGecko · farside.co.uk (ETF flows) · Coinalyze (funding/OI/liq)</span>
   </div>
   <div class="section-body">{crypto_html}</div>
 </div>

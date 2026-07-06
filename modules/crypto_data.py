@@ -425,20 +425,179 @@ def get_sol_etf_flows():
 # COINGLASS: Liquidazioni
 # ─────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────
+# COINALYZE — derivati crypto aggregati multi-exchange (funding, OI, liquidazioni)
+# ─────────────────────────────────────────────────────────────
+
+_COINALYZE_BASE   = "https://api.coinalyze.net/v1"
+_CZ_MARKETS_CACHE = "/tmp/coinalyze_markets_cache.json"
+_CZ_MARKETS_TTL   = 7 * 24 * 3600      # lista mercati cambia raramente
+_CZ_DERIV_CACHE   = "/tmp/coinalyze_deriv_cache.json"
+_CZ_DERIV_TTL     = 30 * 60            # evita di rifare ~12 call su rigenerazioni ravvicinate
+
+def _cz_get(ep, **params):
+    key = getattr(config, "COINALYZE_API_KEY", "")
+    if not key or key == "YOUR_COINALYZE_API_KEY_HERE":
+        return None
+    params["api_key"] = key
+    for attempt in range(4):
+        try:
+            r = requests.get(_COINALYZE_BASE + ep, params=params, timeout=15)
+            if r.status_code == 200:
+                return r.json()
+            if r.status_code == 429:
+                time.sleep(4 * (attempt + 1)); continue   # backoff 4/8/12s
+        except Exception:
+            time.sleep(3)
+    return None
+
+def _cz_perp_symbols():
+    """Lista symbol perp per BTC/ETH/SOL + mappa symbol→base. Cache 7 giorni."""
+    try:
+        with open(_CZ_MARKETS_CACHE) as f:
+            c = json.load(f)
+        if time.time() - c["_ts"] < _CZ_MARKETS_TTL:
+            return c["data"]
+    except Exception:
+        pass
+    mk = _cz_get("/future-markets")
+    if not isinstance(mk, list):
+        return None
+    by_base, sym2base = {}, {}
+    for base in ("BTC", "ETH", "SOL"):
+        syms = [m["symbol"] for m in mk if m.get("base_asset") == base and m.get("is_perpetual")]
+        by_base[base] = syms
+        for s in syms:
+            sym2base[s] = base
+    data = {"by_base": by_base, "sym2base": sym2base}
+    try:
+        with open(_CZ_MARKETS_CACHE, "w") as f:
+            json.dump({"_ts": time.time(), "data": data}, f)
+    except Exception:
+        pass
+    return data
+
+def _cz_chunks(lst, n=20):
+    for i in range(0, len(lst), n):
+        yield lst[i:i+n]
+
+def _funding_label(fr_pct):
+    """fr_pct = funding rate in % per 8h. Bande fisse convenzionali (funding = metrica recente, no standard desk)."""
+    if fr_pct > 0.05:
+        return "Overheated Longs", "warning"      # leva long affollata, rischio squeeze/reversal
+    elif fr_pct >= 0.01:
+        return "Bullish Positioning", "positive"
+    elif fr_pct > -0.01:
+        return "Neutral", "neutral"
+    else:
+        return "Shorts Crowded", "negative"       # potenziale short squeeze (contrarian)
+
+def _get_coinalyze_derivatives():
+    """
+    OI + funding + liquidazioni 24h AGGREGATI multi-exchange da Coinalyze.
+    Ritorna {sym: {...campi...}} oppure {} se non disponibile (→ fallback Binance/OKX).
+    Cache 30 min su disco per non rifare ~12 call su rigenerazioni ravvicinate.
+    """
+    # cache
+    try:
+        with open(_CZ_DERIV_CACHE) as f:
+            c = json.load(f)
+        if time.time() - c["_ts"] < _CZ_DERIV_TTL:
+            return c["data"]
+    except Exception:
+        pass
+
+    mkt = _cz_perp_symbols()
+    if not mkt:
+        return {}
+    sym2base = mkt["sym2base"]
+    all_syms = [s for syms in mkt["by_base"].values() for s in syms]
+    if not all_syms:
+        return {}
+
+    now = int(time.time())
+    agg = {b: {"oi_now": 0.0, "oi_prev": 0.0, "fr": [], "long": 0.0, "short": 0.0,
+               "has_oi": False, "has_fr": False, "has_liq": False} for b in ("BTC", "ETH", "SOL")}
+
+    # Open Interest (corrente + 24h fa) via candele daily
+    for chunk in _cz_chunks(all_syms):
+        data = _cz_get("/open-interest-history", symbols=",".join(chunk), interval="daily",
+                       **{"from": now - 3 * 24 * 3600, "to": now, "convert_to_usd": "true"})
+        time.sleep(1.5)
+        if isinstance(data, list):
+            for item in data:
+                b = sym2base.get(item.get("symbol")); hist = item.get("history", [])
+                if b and hist:
+                    agg[b]["oi_now"]  += hist[-1].get("c", 0) or 0
+                    agg[b]["oi_prev"] += (hist[-2].get("c", 0) if len(hist) >= 2 else hist[-1].get("c", 0)) or 0
+                    agg[b]["has_oi"] = True
+
+    # Funding rate corrente
+    for chunk in _cz_chunks(all_syms):
+        data = _cz_get("/funding-rate", symbols=",".join(chunk))
+        time.sleep(1.5)
+        if isinstance(data, list):
+            for item in data:
+                b = sym2base.get(item.get("symbol")); v = item.get("value")
+                if b and v is not None:
+                    agg[b]["fr"].append(float(v)); agg[b]["has_fr"] = True
+
+    # Liquidazioni 24h
+    for chunk in _cz_chunks(all_syms):
+        data = _cz_get("/liquidation-history", symbols=",".join(chunk), interval="daily",
+                       **{"from": now - 24 * 3600, "to": now, "convert_to_usd": "true"})
+        time.sleep(1.5)
+        if isinstance(data, list):
+            for item in data:
+                b = sym2base.get(item.get("symbol"))
+                if b:
+                    for h in item.get("history", []):
+                        agg[b]["long"]  += h.get("l", 0) or 0
+                        agg[b]["short"] += h.get("s", 0) or 0
+                        agg[b]["has_liq"] = True
+
+    out = {}
+    for b, a in agg.items():
+        e = {}
+        if a["has_oi"] and a["oi_now"] > 0:
+            e["open_interest"] = fmt_large(a["oi_now"])
+            if a["oi_prev"] > 0:
+                chg = (a["oi_now"] - a["oi_prev"]) / a["oi_prev"] * 100
+                e["oi_change_fmt"] = f"{chg:+.1f}%"
+                e["oi_change_dir"] = "positive" if chg > 0 else "negative" if chg < 0 else "neutral"
+        if a["has_fr"] and a["fr"]:
+            avg = sum(a["fr"]) / len(a["fr"])
+            ann = avg * 3 * 365   # % per 8h → annualizzato (3 funding/giorno)
+            label, dirn = _funding_label(avg)
+            e["funding_rate"] = f"{avg:.4f}% ({ann:.1f}% ann.)"
+            e["funding_direction"] = dirn
+            e["funding_note"] = label
+        if a["has_liq"] and (a["long"] > 0 or a["short"] > 0):
+            e["long_raw"] = a["long"]; e["short_raw"] = a["short"]
+            e["long_24h"] = fmt_large(a["long"]); e["short_24h"] = fmt_large(a["short"])
+            e["total_24h"] = fmt_large(a["long"] + a["short"])
+            e["liq_note"] = "24h aggregated multi-exchange (Coinalyze)"
+        if e:
+            e["source"] = "Coinalyze (aggregated)"
+            out[b] = e
+
+    if out:
+        try:
+            with open(_CZ_DERIV_CACHE, "w") as f:
+                json.dump({"_ts": time.time(), "data": out}, f)
+        except Exception:
+            pass
+    return out
+
+
 def get_liquidations_and_oi():
     """
-    Liquidazioni + Open Interest + Funding Rate senza API key.
-
-    Fonti:
-    - OKX public API: liquidazione ordini recenti per BTC, ETH, SOL
-    - Binance FAPI: open interest + funding rate (public, no key)
-    - CoinGlass API (opzionale, se key configurata): dati 24h aggregati precisi
-
-    NOTA: OKX restituisce gli ultimi ~100 ordini di liquidazione (non il totale 24h).
-    Usa il dato come indicatore direzionale (long vs short dominanti).
-    Per il totale 24h preciso → link CoinGlass.
+    Liquidazioni + Open Interest + Funding Rate.
+    PRIMARIO: Coinalyze aggregato multi-exchange (funding, OI + change 24h, liquidazioni 24h).
+    FALLBACK per campo mancante: OKX (liq campione) + Binance FAPI (OI + funding single-exchange).
     """
-    print("[Crypto] Fetching liquidations + OI + funding rates...")
+    print("[Crypto] Fetching derivatives (Coinalyze aggregated, fallback Binance/OKX)...")
+    coinalyze = _get_coinalyze_derivatives()
     result = {}
 
     okx_map = {"BTC": "BTC-USD", "ETH": "ETH-USD", "SOL": "SOL-USD"}
@@ -453,103 +612,67 @@ def get_liquidations_and_oi():
             "funding_rate": "N/A",
             "funding_direction": "neutral",
             "source": "OKX + Binance (public)",
-            "url": f"https://www.coinglass.com/LiquidationData",
+            "url": "https://www.coinglass.com/LiquidationData",
         }
+        cz = coinalyze.get(sym)
+        if cz:
+            entry.update(cz)
 
-        # ── OKX: liquidazioni recenti (indicatore direzionale) ──
-        try:
-            uly = okx_map[sym]
-            resp = requests.get(
-                "https://www.okx.com/api/v5/public/liquidation-orders",
-                params={"instType": "SWAP", "uly": uly, "state": "filled", "limit": 100},
-                headers=headers, timeout=10,
-            )
-            details = resp.json().get("data", [{}])[0].get("details", [])
-            long_liq_usd = 0.0
-            short_liq_usd = 0.0
-            for d in details:
-                sz = float(d.get("sz", 0))
-                px = float(d.get("bkPx", 0))
-                usd_val = sz * px
-                if d.get("posSide") == "long":
-                    long_liq_usd += usd_val   # long liquidated = sold
-                else:
-                    short_liq_usd += usd_val  # short liquidated = bought
-
-            total_usd = long_liq_usd + short_liq_usd
-            entry.update({
-                "long_raw": long_liq_usd,
-                "short_raw": short_liq_usd,
-                "long_24h": fmt_large(long_liq_usd),
-                "short_24h": fmt_large(short_liq_usd),
-                "total_24h": fmt_large(total_usd),
-                "liq_note": f"Ultimo campione OKX (~100 ordini). Long liq = pressione ribassista. Short liq = short squeeze.",
-            })
-        except Exception as e:
-            print(f"[Crypto] OKX liq error {sym}: {e}")
-
-        # ── Binance FAPI: Open Interest ──
-        try:
-            b_sym = binance_map[sym]
-            oi_resp = requests.get(
-                f"https://fapi.binance.com/fapi/v1/openInterest?symbol={b_sym}",
-                headers=headers, timeout=8,
-            )
-            oi_data = oi_resp.json()
-            oi_val = float(oi_data.get("openInterest", 0))
-            # Get current price to convert to USD
-            price_resp = requests.get(
-                f"https://fapi.binance.com/fapi/v1/ticker/price?symbol={b_sym}",
-                headers=headers, timeout=8,
-            )
-            price_val = float(price_resp.json().get("price", 0))
-            oi_usd = oi_val * price_val
-            entry["open_interest"] = fmt_large(oi_usd)
-        except Exception as e:
-            print(f"[Crypto] Binance OI error {sym}: {e}")
-
-        # ── Binance FAPI: Funding Rate ──
-        try:
-            b_sym = binance_map[sym]
-            fr_resp = requests.get(
-                f"https://fapi.binance.com/fapi/v1/fundingRate?symbol={b_sym}&limit=1",
-                headers=headers, timeout=8,
-            )
-            fr_data = fr_resp.json()
-            if fr_data:
-                fr = float(fr_data[0].get("fundingRate", 0))
-                fr_annualized = fr * 3 * 365 * 100  # 3 funding/day, annualizzato
-                direction = "positive" if fr > 0 else "negative" if fr < 0 else "neutral"
-                note = "Longs pagano Shorts (mercato long-biased)" if fr > 0 else "Shorts pagano Longs (mercato short-biased)"
-                entry["funding_rate"] = f"{fr*100:.4f}% ({fr_annualized:.1f}% ann.)"
-                entry["funding_direction"] = direction
-                entry["funding_note"] = note
-        except Exception as e:
-            print(f"[Crypto] Binance funding rate error {sym}: {e}")
-
-        # ── CoinGlass (se key disponibile) ──
-        if config.COINGLASS_API_KEY and config.COINGLASS_API_KEY != "YOUR_COINGLASS_API_KEY_HERE":
+        # ── Fallback OKX: liquidazioni campione (solo se Coinalyze non le ha date) ──
+        if entry.get("total_24h") in ("—", "N/A", ""):
             try:
-                cg_headers = {"CG-API-KEY": config.COINGLASS_API_KEY}
-                cg_resp = requests.get(
-                    "https://open-api.coinglass.com/public/v2/liquidation_symbol",
-                    params={"symbol": sym, "time_type": "h24"},
-                    headers=cg_headers, timeout=10,
+                uly = okx_map[sym]
+                resp = requests.get(
+                    "https://www.okx.com/api/v5/public/liquidation-orders",
+                    params={"instType": "SWAP", "uly": uly, "state": "filled", "limit": 100},
+                    headers=headers, timeout=10,
                 )
-                cg_data = cg_resp.json().get("data", {})
-                long_liq = float(cg_data.get("longLiquidationUsd", 0) or 0)
-                short_liq = float(cg_data.get("shortLiquidationUsd", 0) or 0)
+                details = resp.json().get("data", [{}])[0].get("details", [])
+                long_liq_usd = short_liq_usd = 0.0
+                for d in details:
+                    usd_val = float(d.get("sz", 0)) * float(d.get("bkPx", 0))
+                    if d.get("posSide") == "long":
+                        long_liq_usd += usd_val
+                    else:
+                        short_liq_usd += usd_val
                 entry.update({
-                    "long_raw": long_liq,
-                    "short_raw": short_liq,
-                    "long_24h": fmt_large(long_liq),
-                    "short_24h": fmt_large(short_liq),
-                    "total_24h": fmt_large(long_liq + short_liq),
-                    "source": "CoinGlass (24h aggregato)",
-                    "liq_note": "Dati 24h aggregati multi-exchange.",
+                    "long_raw": long_liq_usd, "short_raw": short_liq_usd,
+                    "long_24h": fmt_large(long_liq_usd), "short_24h": fmt_large(short_liq_usd),
+                    "total_24h": fmt_large(long_liq_usd + short_liq_usd),
+                    "liq_note": "OKX sample (~100 orders, fallback). Long liq = downside pressure. Short liq = short squeeze.",
                 })
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[Crypto] OKX liq fallback error {sym}: {e}")
+
+        # ── Fallback Binance: Open Interest (solo se mancante) ──
+        if entry.get("open_interest") in ("N/A", None):
+            try:
+                b_sym = binance_map[sym]
+                oi_val = float(requests.get(
+                    f"https://fapi.binance.com/fapi/v1/openInterest?symbol={b_sym}",
+                    headers=headers, timeout=8).json().get("openInterest", 0))
+                price_val = float(requests.get(
+                    f"https://fapi.binance.com/fapi/v1/ticker/price?symbol={b_sym}",
+                    headers=headers, timeout=8).json().get("price", 0))
+                entry["open_interest"] = fmt_large(oi_val * price_val)
+            except Exception as e:
+                print(f"[Crypto] Binance OI fallback error {sym}: {e}")
+
+        # ── Fallback Binance: Funding Rate (solo se mancante) ──
+        if entry.get("funding_rate") in ("N/A", None):
+            try:
+                b_sym = binance_map[sym]
+                fr_data = requests.get(
+                    f"https://fapi.binance.com/fapi/v1/fundingRate?symbol={b_sym}&limit=1",
+                    headers=headers, timeout=8).json()
+                if fr_data:
+                    fr = float(fr_data[0].get("fundingRate", 0)) * 100  # → % per 8h
+                    label, dirn = _funding_label(fr)
+                    entry["funding_rate"] = f"{fr:.4f}% ({fr*3*365:.1f}% ann.)"
+                    entry["funding_direction"] = dirn
+                    entry["funding_note"] = label
+            except Exception as e:
+                print(f"[Crypto] Binance funding fallback error {sym}: {e}")
 
         result[sym] = entry
 
