@@ -75,6 +75,14 @@ OTHER_ASSETS = {
     "Brent Crude Oil": "BZ=F",
 }
 
+# FX majors (Yahoo Finance primario, Frankfurter fallback keyless)
+FX_PAIRS = {
+    "USD/JPY": "USDJPY=X",   # il più rilevante: carry trade ↔ risk crypto
+    "EUR/USD": "EURUSD=X",
+    "GBP/USD": "GBPUSD=X",
+    "USD/CNY": "USDCNY=X",
+}
+
 SECTOR_ETFS = {
     "XLK": "Technology",
     "XLF": "Financials",

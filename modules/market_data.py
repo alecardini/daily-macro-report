@@ -305,6 +305,91 @@ def get_treasury_yields_yf():
 # OTHER ASSETS: DXY, Gold, Silver, Copper
 # ─────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────
+# FX MAJORS (Yahoo Finance primario, Frankfurter fallback keyless)
+# ─────────────────────────────────────────────────────────────
+
+def _frankfurter_fx_fallback():
+    """
+    Fallback FX via Frankfurter (ECB reference rates, keyless).
+    Dà solo il livello (fixing giornaliero BCE, EUR-based) → ricostruisco i pair
+    e calcolo la variazione D/D (day-over-day), NON 24h rolling → etichettata diversamente.
+    """
+    import datetime as _dt
+    try:
+        base = "https://api.frankfurter.dev/v1"
+        latest = requests.get(f"{base}/latest?base=EUR&symbols=USD,JPY,GBP,CNY", timeout=12).json()
+        cur_date = latest.get("date")
+        cur = latest.get("rates", {})
+        if not cur or not cur_date:
+            return {}
+        start = (_dt.date.fromisoformat(cur_date) - _dt.timedelta(days=7)).isoformat()
+        series = requests.get(f"{base}/{start}..{cur_date}?base=EUR&symbols=USD,JPY,GBP,CNY", timeout=12).json()
+        rates_by_date = series.get("rates", {})
+        dates = sorted(rates_by_date.keys())
+        prev = rates_by_date[dates[-2]] if len(dates) >= 2 else cur
+
+        def _pairs(r):
+            usd = r["USD"]
+            return {
+                "EUR/USD": usd,
+                "USD/JPY": r["JPY"] / usd,
+                "GBP/USD": usd / r["GBP"],
+                "USD/CNY": r["CNY"] / usd,
+            }
+        pc, pp = _pairs(cur), _pairs(prev)
+        out = {}
+        for name in config.FX_PAIRS:
+            v, pv = pc.get(name), pp.get(name)
+            if v is None:
+                continue
+            dec = 2 if "JPY" in name else 4
+            chg = v - (pv if pv else v)
+            pct = (chg / pv * 100) if pv else 0
+            direction = "up" if chg > 0 else "down" if chg < 0 else "neutral"
+            out[name] = {
+                "name": name,
+                "price_fmt": f"{v:.{dec}f}",
+                "change_fmt": f"{chg:+.{dec}f}",
+                "pct_fmt": f"{pct:+.2f}%",
+                "direction": direction,
+                "source": "ECB ref. (Frankfurter), D/D",
+            }
+        return out
+    except Exception as e:
+        print(f"[MarketData] Frankfurter FX fallback error: {e}")
+        return {}
+
+
+def get_fx_majors():
+    """FX majors da Yahoo Finance (primario) con fallback Frankfurter per i pair mancanti."""
+    print("[MarketData] Fetching FX majors...")
+    results = {}
+    for name, sym in config.FX_PAIRS.items():
+        d = get_yf_ticker_data(sym, name)
+        if d.get("price"):
+            dec = 2 if "JPY" in name else 4
+            results[name] = {
+                "name": name,
+                "price_fmt": f"{d['price']:.{dec}f}",
+                "change_fmt": f"{d['change']:+.{dec}f}",
+                "pct_fmt": d["pct_fmt"],
+                "direction": d["direction"],
+                "source": "Yahoo Finance",
+            }
+        else:
+            results[name] = None
+
+    # Fallback Frankfurter solo per i pair che Yahoo non ha dato
+    if any(v is None for v in results.values()):
+        fb = _frankfurter_fx_fallback()
+        for name in list(results):
+            if results[name] is None:
+                results[name] = fb.get(name)
+
+    return {k: v for k, v in results.items() if v}
+
+
 def get_other_assets():
     """Fetch DXY, Gold, Silver, Copper prices."""
     print("[MarketData] Fetching commodities and DXY...")

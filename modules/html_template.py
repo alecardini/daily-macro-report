@@ -514,7 +514,7 @@ def render_indices(indices, futures, yields, analysis_text=""):
 # ALTRI ASSET
 # ─────────────────────────────────────────────────────────────
 
-def render_other_assets(assets, gold_etf, asset_analyses=None):
+def render_other_assets(assets, gold_etf, asset_analyses=None, fx=None):
     if asset_analyses is None:
         asset_analyses = {}
 
@@ -547,6 +547,27 @@ def render_other_assets(assets, gold_etf, asset_analyses=None):
             <div class="arc-right">
                 {analysis_html}
             </div>
+        </div>"""
+
+    # ── FX Majors ──
+    if fx:
+        fx_cards = ""
+        for name, d in fx.items():
+            dr = d.get("direction", "neutral")
+            fx_cards += f"""
+            <div class="asset-card {cc(dr)}-border">
+                <div class="asset-name">{name}</div>
+                <div class="asset-price">{d.get('price_fmt','N/A')}</div>
+                <div class="asset-change {cc(dr)}">{arrow(dr)} {d.get('pct_fmt','N/A')} <span class="change-abs">{d.get('change_fmt','')}</span></div>
+                <div class="asset-extra">{d.get('source','')}</div>
+            </div>"""
+        html += f"""
+        <div class="subsection-title" style="margin-top:16px">FX Majors</div>
+        <div class="assets-grid">{fx_cards}</div>
+        <div class="pc-note" style="margin-top:10px">
+            <strong>How to read:</strong> USD/JPY is the key pair for crypto — yen weakness (USD/JPY up) = carry trade ON = risk-on;
+            a sharp yen strengthening (USD/JPY down fast) = carry unwind = risk-off pressure on crypto.
+            EUR/USD = broad USD direction, USD/CNY up = yuan stress. DXY (above) is the aggregate USD gauge.
         </div>"""
 
     return html
@@ -871,7 +892,7 @@ def generate_html(data):
     stablecoin_html = render_stablecoin_liquidity(data.get("stablecoin", {}))
     indices_html  = render_indices(data.get("indices",{}), data.get("futures",{}), data.get("yields",{}), analyses.get("indices",""))
     asia_html     = render_asia(data.get("asia", {}))
-    assets_html   = render_other_assets(data.get("other_assets",{}), data.get("gold_etf",{}), analyses.get("assets",{}))
+    assets_html   = render_other_assets(data.get("other_assets",{}), data.get("gold_etf",{}), analyses.get("assets",{}), data.get("fx",{}))
     oil_news_html = render_news_section(data.get("oil_news", []), "No Oil & Energy news available.")
     pc_html       = render_pc_ratios(data.get("pc_ratios", {}))
     sector_html   = render_sector_rotation(data.get("sector_rotation", {}))
