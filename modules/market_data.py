@@ -199,6 +199,7 @@ def get_treasury_yields():
                 yields[name] = {
                     "value": cur,
                     "value_fmt": f"{cur:.2f}%",
+                    "change_bps": chg_bps,
                     "change_bps_fmt": f"{chg_bps:+.0f}bp",
                     "direction": direction,
                     "date": date,
@@ -213,18 +214,22 @@ def get_treasury_yields():
     # ── Signals: curve spreads + inflation + credit ──
     signals = {"spreads": {}, "inflation": {}, "credit": {}}
 
-    for name, sid in getattr(config, "FRED_CURVE_SPREADS", {}).items():
-        try:
-            cur, chg_bps, _ = _fred_latest(sid)
-            if cur is not None:
-                note, note_cls = _curve_note(cur)
-                signals["spreads"][name] = {
-                    "value_fmt": f"{'+' if cur >= 0 else ''}{cur:.2f}%",
-                    "change_bps_fmt": f"{chg_bps:+.0f}bp",
-                    "note": note, "dir": note_cls,
-                }
-        except Exception as e:
-            print(f"[MarketData] FRED spread error {sid}: {e}")
+    # Spread calcolati come differenza dei yield GIÀ mostrati (consistency aritmetica,
+    # non da serie FRED separate T10Y2Y/T10Y3M che hanno timing diverso → sfasamento bp).
+    for name, long_k, short_k in [
+        ("2s10s", "10Y Yield", "2Y Yield"),
+        ("3m10y", "10Y Yield", "3M Yield"),
+    ]:
+        yl, ys = yields.get(long_k), yields.get(short_k)
+        if yl and ys and yl.get("value") is not None and ys.get("value") is not None:
+            val = yl["value"] - ys["value"]
+            chg = (yl.get("change_bps", 0) or 0) - (ys.get("change_bps", 0) or 0)
+            note, note_cls = _curve_note(val)
+            signals["spreads"][name] = {
+                "value_fmt": f"{'+' if val >= 0 else ''}{val:.2f}%",
+                "change_bps_fmt": f"{chg:+.0f}bp",
+                "note": note, "dir": note_cls,
+            }
 
     for name, sid in getattr(config, "FRED_INFLATION", {}).items():
         try:

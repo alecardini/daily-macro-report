@@ -118,11 +118,9 @@ TREASURY_SERIES = {
     "30Y Yield": "DGS30",
 }
 
-# Curve signals — spread già calcolati da FRED (segnali recessione)
-FRED_CURVE_SPREADS = {
-    "2s10s": "T10Y2Y",   # 10Y - 2Y
-    "3m10y": "T10Y3M",   # 10Y - 3M (modello recessione NY Fed)
-}
+# Curve signals: 2s10s e 3m10y sono calcolati in market_data come differenza dei yield
+# della curva già mostrati (DGS10-DGS2, DGS10-DGS3MO) per consistenza aritmetica —
+# NON da serie FRED separate (T10Y2Y/T10Y3M) che hanno timing diverso.
 
 # Real yield & breakeven inflation (TIPS) — crescita vs inflazione
 FRED_INFLATION = {
