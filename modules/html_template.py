@@ -758,7 +758,7 @@ def _earnings_row(e, badge=None):
     surp_cls = "positive" if beat is True else "negative" if beat is False else "neutral-c"
     badge_html = f'<span class="earning-badge">{badge}</span>' if badge else ""
 
-    release_time  = e.get("release_time", "—")
+    release_time  = e.get("release_time", "")
     release_label = e.get("release_label", "")
     if release_label == "Pre-Market":
         time_badge = '<span class="release-badge release-pre">PRE</span>'
@@ -768,13 +768,16 @@ def _earnings_row(e, badge=None):
         time_badge = '<span class="release-badge release-intra">INTRA</span>'
     else:
         time_badge = ""
+    # Niente placeholder "—" davanti al badge: il badge PRE/AMC è già l'informazione oraria
+    rt_disp = release_time if release_time and release_time != "—" else ""
+    time_cell = f"{rt_disp} {time_badge}".strip() or "—"
 
     return f"""
     <div class="etable-row">
         <span class="etcol-sym"><span class="earning-sym">{e['symbol']}</span>{badge_html}</span>
         <span class="etcol-name earning-name">{e['name']}</span>
         <span class="etcol-date earning-date">{e['date_fmt']}</span>
-        <span class="etcol-time">{release_time} {time_badge}</span>
+        <span class="etcol-time">{time_cell}</span>
         <span class="etcol-eps {'positive' if beat is True else 'negative' if beat is False else ''}">{e.get('eps_actual','—')}</span>
         <span class="etcol-eps neutral-c">{e.get('eps_estimate','—')}</span>
         <span class="etcol-rev neutral-c">{e.get('rev_estimate','—')}</span>

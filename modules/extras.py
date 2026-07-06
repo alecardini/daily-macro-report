@@ -456,16 +456,19 @@ def get_earnings_this_week():
                     "rev_estimate":  _fmt_rev(yf_rev) if yf_rev is not None else "—",
                 })
             else:
-                yf_eps, yf_rev = None, None
-                if eps_est is None:
-                    yf_eps, yf_rev = _yf_earnings_fallback(sym)
+                # Righe forward (today + upcoming): chiamo SEMPRE yfinance per la revenue
+                # estimate (Nasdaq.com non la fornisce). L'EPS di yfinance si usa solo se
+                # Nasdaq non ce l'ha. Le chiamate avvengono 1 volta/giorno (result cachato),
+                # e solo per le ~7-20 società effettivamente mostrate → no rate-limit.
+                yf_eps, yf_rev = _yf_earnings_fallback(sym)
+                eps_final = eps_est if eps_est is not None else yf_eps
                 entry = {
                     "symbol":        sym,
                     "name":          name,
                     "date_fmt":      d.strftime("%a %d %b"),
-                    "release_time":  "—",
+                    "release_time":  "",
                     "release_label": release_label,
-                    "eps_estimate":  f"${yf_eps:.2f}" if yf_eps is not None else (f"${eps_est:.2f}" if eps_est is not None else "—"),
+                    "eps_estimate":  f"${eps_final:.2f}" if eps_final is not None else "—",
                     "rev_estimate":  _fmt_rev(yf_rev) if yf_rev is not None else "N/A",
                     "eps_actual":    "—",
                     "surprise":      "—",
