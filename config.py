@@ -273,6 +273,8 @@ CALENDAR_IMPACT_HIGH = [
     ("ISM Manufacturing Prices",  "USD"),
     ("Final Services PMI",        "USD"),   # US Final Services PMI → alto
     ("10-y Bond Auction",         "USD"),   # 10-Year Note Auction USD → alto
+    ("30-y Bond Auction",         "USD"),   # 30-Year Bond Auction USD → alto (JPY resta escluso da blacklist)
+    ("Existing Home Sales",       "USD"),   # USD → alto
 ]
 
 # =============================================================================
