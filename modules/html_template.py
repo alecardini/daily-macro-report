@@ -224,6 +224,16 @@ def render_sentiment(sentiment, vix_data=None, sentiment_analysis=""):
             <span class="source-tag">CBOE via Yahoo Finance</span>
         </div>"""
 
+    # COT positioning — STUB (la logica CFTC vive in un COT engine separato;
+    # in futuro questa card leggerà cot-summary.json prodotto da quell'engine).
+    cot_stub_html = """
+    <div class="sentiment-card cot-stub">
+        <h4>Positioning — COT</h4>
+        <div class="cot-stub-badge">Coming soon</div>
+        <div class="cot-stub-text">Weekly CFTC Commitment of Traders positioning — net position, 3yr COT index, price/positioning divergence. Served by a dedicated COT engine (separate tool).</div>
+        <span class="source-tag">CFTC · via COT engine (planned)</span>
+    </div>"""
+
     # Analysis text
     analysis_html = f'<div class="analysis-box"><p>{sentiment_analysis}</p></div>' if sentiment_analysis else ""
 
@@ -234,6 +244,7 @@ def render_sentiment(sentiment, vix_data=None, sentiment_analysis=""):
         {equity_html}
         {aaii_html}
         {vix_html}
+        {cot_stub_html}
     </div>"""
 
 
@@ -974,6 +985,9 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 /* SENTIMENT */
 .sentiment-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px}}
 .sentiment-card{{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px}}
+.cot-stub{{border:1px dashed var(--border);opacity:.72;display:flex;flex-direction:column;gap:8px}}
+.cot-stub-badge{{align-self:flex-start;background:var(--bg3);color:var(--text3);padding:2px 9px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase}}
+.cot-stub-text{{color:var(--text3);font-size:10px;line-height:1.5}}
 .sentiment-card h4{{color:var(--text2);font-size:10px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px}}
 .gauge-bar{{width:100%;height:8px;background:var(--bg3);border-radius:4px;overflow:hidden;margin-bottom:4px}}
 .gauge-fill{{height:100%;border-radius:4px;transition:width .5s}}
