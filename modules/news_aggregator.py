@@ -63,6 +63,41 @@ AI_KEYWORDS = [
 ]
 
 
+# ── Ranking per impatto: le notizie che muovono i mercati salgono in cima ──
+# (keyword pesate; match nel titolo conta doppio rispetto al summary)
+IMPACT_WEIGHTS = {
+    5: [  # alto impatto immediato sui mercati
+        "rate decision", "rate cut", "rate hike", "fomc", "emergency",
+        "recession", "cpi", "nonfarm", "jobs report", "tariff", "sanction",
+        "invasion", "shutdown", "default", "crisis", "crash", "collapse",
+        "downgrade", "bankruptcy", "hack", "exploit", "liquidation", "halt",
+    ],
+    3: [  # rilevanti
+        "fed ", "powell", "ecb", "lagarde", "boj", "central bank", "gdp",
+        "ppi", "pce", "inflation", "earnings", "treasury", "yield", "opec",
+        "bitcoin", "ethereum", "etf", "trump", "china", "russia", "iran",
+        "israel", "election", "stimulus", "layoff", "merger", "acquisition",
+    ],
+    1: [  # generici
+        "stocks", "market", "dollar", "gold", "oil", "trade", "economy",
+        "growth", "bank", "crypto", "nasdaq", "s&p",
+    ],
+}
+
+def _impact_score(article):
+    """Punteggio di impatto pesato di un articolo (titolo × 2, summary × 1)."""
+    title = (article.get("title") or "").lower()
+    summary = (article.get("summary") or "").lower()
+    score = 0
+    for weight, kws in IMPACT_WEIGHTS.items():
+        for kw in kws:
+            if kw in title:
+                score += weight * 2
+            elif kw in summary:
+                score += weight
+    return score
+
+
 def is_recent(pub_parsed, hours_back=24):
     """Check if feedparser time struct is within last N hours."""
     if not pub_parsed:
@@ -293,25 +328,23 @@ def deduplicate_with_source_limit(articles, max_total=14, max_per_source=None):
             by_source[art["source"]].append(art)
             seen_titles.append(art["title"])
 
-    # Round-robin interleaving with per-source cap
-    result = []
-    sources = list(by_source.keys())
-    source_count = defaultdict(int)
-    round_idx = 0
+    # Ranking per IMPATTO: le notizie che muovono i mercati vanno in cima.
+    # Prima era round-robin per fonte (cronologico) → nessuna priorità all'importanza.
+    # Ora: score pesato → ordina decrescente → seleziona con tetto per fonte (diversità).
+    deduped = [art for arts in by_source.values() for art in arts]
+    for art in deduped:
+        art["impact_score"] = _impact_score(art)
+    deduped.sort(key=lambda a: a["impact_score"], reverse=True)
 
-    while len(result) < max_total:
-        added_any = False
-        for src in sources:
-            pool = by_source[src]
-            if source_count[src] < max_per_source and source_count[src] < len(pool):
-                result.append(pool[source_count[src]])
-                source_count[src] += 1
-                added_any = True
-                if len(result) >= max_total:
-                    break
-        if not added_any:
+    result = []
+    source_count = defaultdict(int)
+    for art in deduped:
+        if source_count[art["source"]] >= max_per_source:
+            continue
+        result.append(art)
+        source_count[art["source"]] += 1
+        if len(result) >= max_total:
             break
-        round_idx += 1
 
     return result
 
