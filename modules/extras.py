@@ -600,10 +600,18 @@ def get_asia_session():
 
     for name, sym in ASIA_INDICES.items():
         try:
-            t = yf.Ticker(sym)
-            fi = t.fast_info
-            price = getattr(fi, "last_price", None)
-            prev = getattr(fi, "previous_close", None)
+            # Retry/backoff: Yahoo throttla su chiamate ravvicinate → prima Asia usciva N/A.
+            price = prev = None
+            for attempt in range(3):
+                try:
+                    fi = yf.Ticker(sym).fast_info
+                    price = getattr(fi, "last_price", None)
+                    prev = getattr(fi, "previous_close", None)
+                    if price and prev and prev > 0:
+                        break
+                except Exception:
+                    pass
+                time.sleep(2 * (attempt + 1))   # 2s, 4s, 6s
             if price and prev and prev > 0:
                 change = price - prev
                 pct = (change / prev) * 100

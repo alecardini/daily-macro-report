@@ -18,6 +18,7 @@ import yfinance as yf
 from datetime import datetime, timezone, timedelta
 import pytz
 import re
+import time
 import sys
 import os
 import json
@@ -666,21 +667,30 @@ def get_crypto_fear_greed():
         return {"score": None, "label": "N/A", "color": "#888", "source": "alternative.me"}
 
 
-def _pct_change_period(sym: str, period: str) -> float | None:
-    """Calcola la performance % su un periodo (es. '5d', '1mo', '3mo') via yfinance."""
-    try:
-        import yfinance as yf
-        hist = yf.Ticker(sym).history(period=period, interval="1d", auto_adjust=True)
-        closes = hist["Close"].dropna()
-        if len(closes) < 2:
-            return None
-        start = float(closes.iloc[0])
-        end   = float(closes.iloc[-1])
-        if start == 0:
-            return None
-        return round((end - start) / start * 100, 2)
-    except Exception:
+def _yf_history_retry(sym: str, period: str, retries: int = 3):
+    """
+    yfinance history con retry/backoff. Yahoo throttla su chiamate concorrenti/ravvicinate
+    (era la causa di Asia Session + Sector Rotation vuote nel run completo).
+    """
+    for attempt in range(retries):
+        try:
+            hist = yf.Ticker(sym).history(period=period, interval="1d", auto_adjust=True)
+            closes = hist["Close"].dropna()
+            if len(closes) >= 2:
+                return closes
+        except Exception:
+            pass
+        time.sleep(2 * (attempt + 1))   # backoff 2s, 4s, 6s
+    return None
+
+
+def _perf_from_closes(closes, n) -> float | None:
+    """Performance % sugli ultimi n giorni di trading da una serie di close (n grande = intero periodo)."""
+    if closes is None or len(closes) < 2:
         return None
+    c0 = float(closes.iloc[0]) if len(closes) <= n else float(closes.iloc[-1 - n])
+    c1 = float(closes.iloc[-1])
+    return round((c1 - c0) / c0 * 100, 2) if c0 else None
 
 
 def _fmt_pct(val: float | None) -> str:
@@ -700,9 +710,12 @@ def get_sector_rotation():
     sectors = {}
 
     for sym, name in config.SECTOR_ETFS.items():
-        pct_week    = _pct_change_period(sym, "5d")
-        pct_month   = _pct_change_period(sym, "1mo")
-        pct_quarter = _pct_change_period(sym, "3mo")
+        # Un solo fetch 3mo per settore (con retry) → 5d/1mo/3mo calcolati dalla stessa serie.
+        # Prima erano 3 fetch × 10 settori = 30 chiamate concorrenti → throttle Yahoo.
+        closes = _yf_history_retry(sym, "3mo")
+        pct_week    = _perf_from_closes(closes, 5)
+        pct_month   = _perf_from_closes(closes, 21)
+        pct_quarter = _perf_from_closes(closes, 10**6)   # intero periodo 3mo
         dir_week    = "positive" if (pct_week or 0) >= 0 else "negative"
         sectors[sym] = {
             "name":            name,
