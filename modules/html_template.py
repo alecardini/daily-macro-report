@@ -224,16 +224,6 @@ def render_sentiment(sentiment, vix_data=None, sentiment_analysis=""):
             <span class="source-tag">CBOE via Yahoo Finance</span>
         </div>"""
 
-    # COT positioning — STUB (la logica CFTC vive in un COT engine separato;
-    # in futuro questa card leggerà cot-summary.json prodotto da quell'engine).
-    cot_stub_html = """
-    <div class="sentiment-card cot-stub">
-        <h4>Positioning — COT</h4>
-        <div class="cot-stub-badge">Coming soon</div>
-        <div class="cot-stub-text">Weekly CFTC Commitment of Traders positioning — net position, 3yr COT index, price/positioning divergence. Served by a dedicated COT engine (separate tool).</div>
-        <span class="source-tag">CFTC · via COT engine (planned)</span>
-    </div>"""
-
     # Analysis text
     analysis_html = f'<div class="analysis-box"><p>{sentiment_analysis}</p></div>' if sentiment_analysis else ""
 
@@ -244,7 +234,19 @@ def render_sentiment(sentiment, vix_data=None, sentiment_analysis=""):
         {equity_html}
         {aaii_html}
         {vix_html}
-        {cot_stub_html}
+    </div>"""
+
+
+def render_cot_positioning(cot_data=None):
+    """
+    STUB: la logica COT vive in un COT engine separato. In futuro questa sezione
+    leggerà cot-summary.json (handoff settimanale) e mostrerà i segnali per asset.
+    """
+    return """
+    <div class="cot-stub-section">
+        <div class="cot-stub-badge">Coming soon</div>
+        <div class="cot-stub-text">Weekly CFTC Commitment of Traders positioning — for each key asset: net position, 3-year COT index (0–100, with extreme flags &gt;85 / &lt;15), week-over-week velocity, and price/positioning divergence (bullish / bearish / neutral). Served by a dedicated COT engine (separate tool) via a weekly <code>cot-summary.json</code> handoff.</div>
+        <span class="source-tag">CFTC · via COT engine (planned)</span>
     </div>"""
 
 
@@ -889,32 +891,6 @@ def render_sector_rotation(sr_data):
 # OVERNIGHT CROSS-ASSET RECAP (synthesis layer — riusa i dati già raccolti, nessun re-fetch)
 # ─────────────────────────────────────────────────────────────
 
-def _overnight_regime(futures, crypto, fx):
-    """Lettura del regime data-driven da equity futures + crypto (nessun driver news fabbricato)."""
-    score = signals = 0
-    for d in futures.values():
-        dr = (d or {}).get("direction")
-        if dr == "up": score += 1; signals += 1
-        elif dr == "down": score -= 1; signals += 1
-    for k in ("BTC", "ETH"):
-        dr = (crypto.get(k) or {}).get("direction")
-        if dr == "up": score += 1; signals += 1
-        elif dr == "down": score -= 1; signals += 1
-    if signals == 0:
-        return "Overnight recap — data not available"
-    ratio = score / signals
-    tone = "Risk-on overnight" if ratio > 0.4 else "Risk-off overnight" if ratio < -0.4 else "Mixed overnight"
-    # Lente yen carry solo se il movimento è significativo (≥0.2%), non su rumore tipo +0.03%
-    jpy = fx.get("USD/JPY") or {}
-    jpy_pct = jpy.get("pct", 0) or 0
-    if abs(jpy_pct) >= 0.2:
-        if jpy_pct > 0:
-            tone += " · yen weaker (carry-on)"
-        else:
-            tone += " · yen stronger (carry unwind)"
-    return tone
-
-
 def render_overnight_recap(data):
     futures = data.get("futures", {}) or {}
     yields  = data.get("yields", {}) or {}
@@ -955,12 +931,13 @@ def render_overnight_recap(data):
     if not groups:
         return ""
 
-    regime = _overnight_regime(futures, crypto, fx)
+    # Nessun verdetto Risk-on/off: solo i fatti cross-asset in un colpo d'occhio.
+    # La lettura la fa il trader — un'etichetta automatica creerebbe bias (scelta utente).
     cols = "".join(
         f'<div class="ovr-group"><div class="ovr-gt">{title}</div><div class="ovr-chips">{"".join(chips)}</div></div>'
         for title, chips in groups
     )
-    return f'<div class="ovr-regime">{regime}</div><div class="ovr-wrap">{cols}</div>'
+    return f'<div class="ovr-wrap">{cols}</div>'
 
 
 # ─────────────────────────────────────────────────────────────
@@ -981,6 +958,7 @@ def generate_html(data):
     news_html     = render_news_section(data.get("news", []))
     cb_news_html  = render_news_section(data.get("cb_news", []), "No central bank news in the last 48h.")
     sentiment_html = render_sentiment(data.get("sentiment", {}), vix_data, analyses.get("sentiment",""))
+    cot_html       = render_cot_positioning(data.get("cot"))
     crypto_html   = render_crypto(data.get("crypto", {}), analyses.get("crypto",{}))
     stablecoin_html = render_stablecoin_liquidity(data.get("stablecoin", {}))
     indices_html  = render_indices(data.get("indices",{}), data.get("futures",{}), data.get("yields",{}), analyses.get("indices",""))
@@ -1067,9 +1045,9 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 /* SENTIMENT */
 .sentiment-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px}}
 .sentiment-card{{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px}}
-.cot-stub{{border:1px dashed var(--border);opacity:.72;display:flex;flex-direction:column;gap:8px}}
+.cot-stub-section{{border:1px dashed var(--border);border-radius:10px;opacity:.75;display:flex;flex-direction:column;gap:9px;padding:16px 18px}}
 .cot-stub-badge{{align-self:flex-start;background:var(--bg3);color:var(--text3);padding:2px 9px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase}}
-.cot-stub-text{{color:var(--text3);font-size:10px;line-height:1.5}}
+.cot-stub-text{{color:var(--text3);font-size:11px;line-height:1.55;max-width:900px}}
 .sentiment-card h4{{color:var(--text2);font-size:10px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px}}
 .gauge-bar{{width:100%;height:8px;background:var(--bg3);border-radius:4px;overflow:hidden;margin-bottom:4px}}
 .gauge-fill{{height:100%;border-radius:4px;transition:width .5s}}
@@ -1178,7 +1156,6 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .day-today-badge{{background:var(--pos);color:#000;padding:1px 7px;border-radius:10px;font-size:8px;font-weight:700;margin-left:8px;vertical-align:middle}}
 
 /* OVERNIGHT CROSS-ASSET RECAP */
-.ovr-regime{{font-size:13px;font-weight:700;color:var(--text);margin-bottom:14px;letter-spacing:.3px}}
 .ovr-wrap{{display:flex;flex-wrap:wrap;gap:22px}}
 .ovr-group{{min-width:110px}}
 .ovr-gt{{font-size:8px;font-weight:700;color:var(--acc);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:7px}}
@@ -1313,6 +1290,15 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
     <span class="section-sub">Fear & Greed · AAII · VIX</span>
   </div>
   <div class="section-body">{sentiment_html}</div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-icon">📊</span>
+    <span class="section-title">Positioning — COT</span>
+    <span class="section-sub">CFTC Commitment of Traders — weekly (via COT engine)</span>
+  </div>
+  <div class="section-body">{cot_html}</div>
 </div>
 
 <div class="section">
