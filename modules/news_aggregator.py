@@ -217,7 +217,7 @@ def fetch_rss_feed(name, url, filter_keywords=None, hours_back=24):
     articles = []
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
-        resp = requests.get(url, headers=headers, timeout=12)
+        resp = requests.get(url, headers=headers, timeout=8)
         if resp.status_code != 200:
             return []
 
@@ -237,21 +237,14 @@ def fetch_rss_feed(name, url, filter_keywords=None, hours_back=24):
                 if not contains_keywords(combined, filter_keywords):
                     continue
 
-            full_text = ""
-            if link and should_fetch_full(link):
-                full_text = fetch_full_article_text(link)
-                time.sleep(0.2)
-
-            title = _translate_if_needed(title)
-            summary = _translate_if_needed(summary)
-            summary_out = extract_key_points(title, summary, full_text)
-
+            # LEGGERO: niente scraping full-text né traduzione qui. Vengono fatti SOLO
+            # sugli articoli finali selezionati (in _enrich_selected), dopo dedup+ranking.
             articles.append({
                 "title": title,
-                "summary": summary_out,
+                "summary": summary,
                 "url": link,
                 "source": name,
-                "has_full_text": bool(full_text),
+                "has_full_text": False,
                 "pub_date": pub_date,
             })
 
@@ -303,6 +296,34 @@ def fetch_newsapi(category="macro", hours_back=24):
     return articles
 
 
+def _enrich_selected(articles):
+    """
+    Arricchisce SOLO gli articoli finali selezionati (traduzione + eventuale full-text),
+    in parallelo. Prima si faceva per TUTTI i ~500 articoli poi scartati → collo di bottiglia.
+    """
+    if not articles:
+        return articles
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _enrich(art):
+        try:
+            title = _translate_if_needed(art.get("title", ""))
+            summary_raw = _translate_if_needed(art.get("summary", ""))
+            full_text = ""
+            if art.get("url") and should_fetch_full(art["url"]):
+                full_text = fetch_full_article_text(art["url"])
+            art["title"] = title
+            art["summary"] = extract_key_points(title, summary_raw, full_text)
+            art["has_full_text"] = bool(full_text)
+        except Exception:
+            pass
+        return art
+
+    with ThreadPoolExecutor(max_workers=min(8, len(articles))) as ex:
+        list(ex.map(_enrich, articles))
+    return articles
+
+
 def deduplicate_with_source_limit(articles, max_total=14, max_per_source=None):
     """
     Deduplicate articles and enforce per-source limit.
@@ -346,6 +367,8 @@ def deduplicate_with_source_limit(articles, max_total=14, max_per_source=None):
         if len(result) >= max_total:
             break
 
+    # Arricchisce (traduzione + full-text) SOLO i finali selezionati, in parallelo.
+    result = _enrich_selected(result)
     return result
 
 
