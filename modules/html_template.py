@@ -904,11 +904,14 @@ def _overnight_regime(futures, crypto, fx):
         return "Overnight recap — data not available"
     ratio = score / signals
     tone = "Risk-on overnight" if ratio > 0.4 else "Risk-off overnight" if ratio < -0.4 else "Mixed overnight"
+    # Lente yen carry solo se il movimento è significativo (≥0.2%), non su rumore tipo +0.03%
     jpy = fx.get("USD/JPY") or {}
-    if jpy.get("direction") == "up":
-        tone += " · yen weaker (carry-on)"
-    elif jpy.get("direction") == "down":
-        tone += " · yen stronger (carry unwind)"
+    jpy_pct = jpy.get("pct", 0) or 0
+    if abs(jpy_pct) >= 0.2:
+        if jpy_pct > 0:
+            tone += " · yen weaker (carry-on)"
+        else:
+            tone += " · yen stronger (carry unwind)"
     return tone
 
 

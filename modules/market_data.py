@@ -357,6 +357,7 @@ def _frankfurter_fx_fallback():
                 "price_fmt": f"{v:.{dec}f}",
                 "change_fmt": f"{chg:+.{dec}f}",
                 "pct_fmt": f"{pct:+.2f}%",
+                "pct": pct,
                 "direction": direction,
                 "source": "ECB ref. (Frankfurter), D/D",
             }
@@ -379,6 +380,7 @@ def get_fx_majors():
                 "price_fmt": f"{d['price']:.{dec}f}",
                 "change_fmt": f"{d['change']:+.{dec}f}",
                 "pct_fmt": d["pct_fmt"],
+                "pct": d.get("pct_change", 0),
                 "direction": d["direction"],
                 "source": "Yahoo Finance",
             }
