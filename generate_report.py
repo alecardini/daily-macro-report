@@ -131,6 +131,18 @@ def main():
         if not data.get(k):
             data[k] = [] if k != "calendar" else {}
 
+    # ── Sintesi 'so what' via Gemini (fallback sicuro: nessuna sintesi) ──
+    from modules.news_aggregator import get_news_synthesis, get_recap_synthesis
+    print("\nGenerating 'so what' synthesis (Gemini)...")
+    data["synthesis"] = {
+        "news":        get_news_synthesis(data.get("news", []),        "financial and geopolitical"),
+        "cb_news":     get_news_synthesis(data.get("cb_news", []),     "central bank"),
+        "crypto_news": get_news_synthesis(data.get("crypto_news", []), "crypto"),
+        "oil_news":    get_news_synthesis(data.get("oil_news", []),    "oil and energy"),
+        "ai_news":     get_news_synthesis(data.get("ai_news", []),     "AI and technology"),
+    }
+    data["recap_synthesis"] = get_recap_synthesis(data)
+
     # ── Micro Analisi ──
     print("\nGenerating analysis...")
     prices  = data["crypto"].get("prices", {})

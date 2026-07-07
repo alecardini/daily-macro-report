@@ -123,10 +123,11 @@ def render_news_item(art, idx):
     </div>"""
 
 
-def render_news_section(articles, empty="No news available."):
+def render_news_section(articles, empty="No news available.", synthesis=""):
     if not articles:
         return f"<p class='no-data'>{empty}</p>"
-    html = '<div class="news-grid">'
+    syn_html = f'<div class="news-synthesis"><span class="syn-tag">SO WHAT</span> {synthesis}</div>' if synthesis else ""
+    html = syn_html + '<div class="news-grid">'
     for i, a in enumerate(articles, 1):
         html += render_news_item(a, i)
     html += "</div>"
@@ -931,13 +932,15 @@ def render_overnight_recap(data):
     if not groups:
         return ""
 
-    # Nessun verdetto Risk-on/off: solo i fatti cross-asset in un colpo d'occhio.
-    # La lettura la fa il trader — un'etichetta automatica creerebbe bias (scelta utente).
+    # I FATTI cross-asset in un colpo d'occhio + una sintesi DESCRITTIVA (non un verdetto
+    # risk-on/off): fotografa i movimenti, la decisione la fa il trader (scelta utente).
+    syn = (data.get("recap_synthesis") or "").strip()
+    syn_html = f'<div class="news-synthesis"><span class="syn-tag">SO WHAT</span> {syn}</div>' if syn else ""
     cols = "".join(
         f'<div class="ovr-group"><div class="ovr-gt">{title}</div><div class="ovr-chips">{"".join(chips)}</div></div>'
         for title, chips in groups
     )
-    return f'<div class="ovr-wrap">{cols}</div>'
+    return f'{syn_html}<div class="ovr-wrap">{cols}</div>'
 
 
 # ─────────────────────────────────────────────────────────────
@@ -955,9 +958,10 @@ def generate_html(data):
     overnight_html = render_overnight_recap(data)
     earnings_html = render_earnings(data.get("earnings", {}))
     cal_html      = render_calendar(data.get("calendar", {}))
-    news_html     = render_news_section(data.get("news", []))
-    cb_news_html  = render_news_section(data.get("cb_news", []), "No central bank news in the last 48h.")
-    crypto_news_html = render_news_section(data.get("crypto_news", []), "No crypto news in the last 24h.")
+    _syn          = data.get("synthesis", {}) or {}
+    news_html     = render_news_section(data.get("news", []), synthesis=_syn.get("news",""))
+    cb_news_html  = render_news_section(data.get("cb_news", []), "No central bank news in the last 48h.", synthesis=_syn.get("cb_news",""))
+    crypto_news_html = render_news_section(data.get("crypto_news", []), "No crypto news in the last 24h.", synthesis=_syn.get("crypto_news",""))
     sentiment_html = render_sentiment(data.get("sentiment", {}), vix_data, analyses.get("sentiment",""))
     cot_html       = render_cot_positioning(data.get("cot"))
     crypto_html   = render_crypto(data.get("crypto", {}), analyses.get("crypto",{}))
@@ -965,10 +969,10 @@ def generate_html(data):
     indices_html  = render_indices(data.get("indices",{}), data.get("futures",{}), data.get("yields",{}), analyses.get("indices",""))
     asia_html     = render_asia(data.get("asia", {}))
     assets_html   = render_other_assets(data.get("other_assets",{}), data.get("gold_etf",{}), analyses.get("assets",{}), data.get("fx",{}))
-    oil_news_html = render_news_section(data.get("oil_news", []), "No Oil & Energy news available.")
+    oil_news_html = render_news_section(data.get("oil_news", []), "No Oil & Energy news available.", synthesis=_syn.get("oil_news",""))
     pc_html       = render_pc_ratios(data.get("pc_ratios", {}))
     sector_html   = render_sector_rotation(data.get("sector_rotation", {}))
-    ai_html       = render_news_section(data.get("ai_news", []), "No AI & Robotics news available.")
+    ai_html       = render_news_section(data.get("ai_news", []), "No AI & Robotics news available.", synthesis=_syn.get("ai_news",""))
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -1164,6 +1168,10 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .ovr-chip{{display:flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:5px 10px;font-size:11px}}
 .ovr-lbl{{color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.5px}}
 .ovr-val{{font-weight:700}}
+
+/* SO-WHAT SYNTHESIS (Gemini) */
+.news-synthesis{{background:var(--bg3);border-left:3px solid var(--acc);border-radius:6px;padding:11px 14px;margin-bottom:14px;font-size:12px;line-height:1.55;color:var(--text2)}}
+.syn-tag{{display:inline-block;background:var(--acc);color:#000;font-size:8px;font-weight:700;letter-spacing:1px;padding:2px 7px;border-radius:8px;margin-right:8px;vertical-align:middle}}
 
 /* PUT/CALL RATIO */
 .pc-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:14px}}

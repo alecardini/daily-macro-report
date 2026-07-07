@@ -296,6 +296,93 @@ def fetch_newsapi(category="macro", hours_back=24):
     return articles
 
 
+def _gemini_generate(prompt, max_tokens=220):
+    """
+    Chiamata a Gemini (gratis). Fallback sicuro: stringa vuota se key manca o API
+    non risponde (429/timeout/ecc.). Thinking disattivato → risposta piena nel budget.
+    """
+    key = getattr(config, "GEMINI_API_KEY", "")
+    if not key or key.startswith("YOUR_"):
+        return ""
+    model = getattr(config, "GEMINI_MODEL", "gemini-2.5-flash")
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+        body = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": max_tokens,
+                "thinkingConfig": {"thinkingBudget": 0},
+            },
+        }
+        r = requests.post(url, json=body, timeout=20)
+        if r.status_code != 200:
+            print(f"[News] Gemini {r.status_code} — fallback (nessuna sintesi)")
+            return ""
+        cand = r.json().get("candidates", [{}])[0]
+        txt = "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", []))
+        return txt.strip()
+    except Exception as e:
+        print(f"[News] Gemini error: {e}")
+        return ""
+
+
+def get_news_synthesis(articles, context="financial markets"):
+    """
+    Sintesi 'so what' (2 frasi) delle news di una sezione via Gemini.
+    Anti-allucinazione: sintetizza SOLO i titoli forniti, niente fatti esterni.
+    """
+    if not articles:
+        return ""
+    headlines = "\n".join(f"- {a.get('title','')}" for a in articles[:12] if a.get("title"))
+    if not headlines.strip():
+        return ""
+    prompt = (
+        f"You are a markets desk analyst. Below are today's top {context} headlines.\n"
+        "Write a 2-sentence 'so what' synthesis: the dominant theme(s) and the implication "
+        "for risk sentiment.\n"
+        "STRICT: use ONLY these headlines, do NOT add facts, numbers or events not present. "
+        "Concise, factual, no preamble.\n\n"
+        f"HEADLINES:\n{headlines}"
+    )
+    return _gemini_generate(prompt)
+
+
+def get_recap_synthesis(data):
+    """
+    Sintesi DESCRITTIVA (non prescrittiva) dei movimenti overnight cross-asset via Gemini.
+    Niente verdetto risk-on/off né consigli — solo fotografia dei movimenti + coerenza/divergenza.
+    """
+    groups = [
+        ("Equity futures", data.get("futures", {}), "pct_fmt"),
+        ("FX",             data.get("fx", {}),      "pct_fmt"),
+        ("Commodities",    data.get("other_assets", {}), "pct_fmt"),
+        ("Crypto",         (data.get("crypto", {}) or {}).get("prices", {}), "change_24h_fmt"),
+    ]
+    lines = []
+    for label, d, field in groups:
+        for name, v in (d or {}).items():
+            if isinstance(v, dict) and v.get(field, "N/A") not in ("N/A", None, ""):
+                lines.append(f"{label} — {name}: {v[field]}")
+    # rates in bps
+    for k in ("2Y Yield", "10Y Yield"):
+        v = (data.get("yields", {}) or {}).get(k)
+        if v and v.get("change_bps_fmt"):
+            lines.append(f"Rates — {k}: {v['change_bps_fmt']}")
+    moves = "\n".join(lines)
+    if not moves.strip():
+        return ""
+    prompt = (
+        "You are a markets desk analyst. Below are the overnight cross-asset moves.\n"
+        "Write a 1-2 sentence DESCRIPTIVE synthesis of the overnight session: what moved and "
+        "whether the cross-asset picture is coherent or mixed/divergent.\n"
+        "STRICT: describe ONLY these moves. Do NOT give a risk-on/risk-off verdict, do NOT give "
+        "trading advice or recommendations, do NOT add data not present. Factual and descriptive only.\n\n"
+        f"MOVES:\n{moves}"
+    )
+    return _gemini_generate(prompt)
+
+
 def _enrich_selected(articles):
     """
     Arricchisce SOLO gli articoli finali selezionati (traduzione + eventuale full-text),

@@ -31,6 +31,12 @@ COINGLASS_API_KEY = "YOUR_COINGLASS_API_KEY_HERE"
 # Sostituto di CoinGlass: funding rate, open interest, liquidazioni 24h aggregati multi-exchange
 COINALYZE_API_KEY = "1434edfb-bf93-4be7-a5cc-cdea8ddc385d"
 
+# --- GOOGLE GEMINI API (sintesi 'so what' delle news, gratis) ---
+# Key gratuita da https://aistudio.google.com (free tier, ~1500 req/giorno, no carta).
+# Usata per generare 2 righe di sintesi in cima alle sezioni news. Fallback: nessuna sintesi.
+GEMINI_API_KEY = "AQ.Ab8RN6KelteYcAbvQV0z6t7dSqFpZxEkwT0EGc-_ihwalfvUcQ"
+GEMINI_MODEL   = "gemini-2.5-flash"
+
 # =============================================================================
 # IMPOSTAZIONI REPORT
 # =============================================================================
@@ -44,7 +50,7 @@ NEWS_HOURS_BACK = 24
 # Numero massimo di notizie per sezione
 MAX_NEWS_GENERAL = 12
 MAX_NEWS_CENTRAL_BANKS = 8
-MAX_NEWS_AI = 8
+MAX_NEWS_AI = 6
 MAX_NEWS_CRYPTO = 8
 
 # Asset da monitorare
