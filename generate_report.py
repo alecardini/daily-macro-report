@@ -56,7 +56,7 @@ def main():
     check_config()
 
     from modules.economic_calendar import get_economic_calendar
-    from modules.news_aggregator import get_general_news, get_central_bank_news, get_ai_robotics_news, get_oil_news
+    from modules.news_aggregator import get_general_news, get_central_bank_news, get_ai_robotics_news, get_oil_news, get_crypto_news
     from modules.market_data import (
         get_us_indices, get_futures, get_treasury_yields,
         get_other_assets, get_gold_etf_data, get_all_sentiment, get_sector_rotation, get_fx_majors
@@ -79,6 +79,7 @@ def main():
             ex.submit(fetch, "News Banche Centrali", get_central_bank_news): "cb_news",
             ex.submit(fetch, "News AI & Robotica", get_ai_robotics_news): "ai_news",
             ex.submit(fetch, "News Oil & Energy", get_oil_news): "oil_news",
+            ex.submit(fetch, "News Crypto", get_crypto_news): "crypto_news",
             ex.submit(fetch, "Sentiment (F&G + AAII)", get_all_sentiment): "sentiment",
             ex.submit(fetch, "Asia Session", get_asia_session): "asia",
             ex.submit(fetch, "Sector Rotation", get_sector_rotation): "sector_rotation",
@@ -126,7 +127,7 @@ def main():
     data["sentiment"] = sentiment
 
     # Sanitize
-    for k in ["calendar", "news", "cb_news", "ai_news", "oil_news"]:
+    for k in ["calendar", "news", "cb_news", "ai_news", "oil_news", "crypto_news"]:
         if not data.get(k):
             data[k] = [] if k != "calendar" else {}
 

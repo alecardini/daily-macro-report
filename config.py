@@ -45,6 +45,7 @@ NEWS_HOURS_BACK = 24
 MAX_NEWS_GENERAL = 12
 MAX_NEWS_CENTRAL_BANKS = 8
 MAX_NEWS_AI = 8
+MAX_NEWS_CRYPTO = 8
 
 # Asset da monitorare
 CRYPTO_ASSETS = {
@@ -171,6 +172,15 @@ RSS_FEEDS_CENTRAL_BANKS = {
     "BIS":                    "https://www.bis.org/rss/presrel.rss",
     "Bloomberg - Economics":  "https://feeds.bloomberg.com/economics/news.rss",
     "CNBC - Economy":         "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=20910274",
+}
+
+# ── CRYPTO-NATIVE (verificate dal vivo 07/07/2026) ──
+# The Block = summary ricchi; CoinDesk/Decrypt = affidabili. DL News SCARTATA (sta chiudendo),
+# Cointelegraph scartata (irraggiungibile in test).
+RSS_FEEDS_CRYPTO = {
+    "The Block":  "https://www.theblock.co/rss.xml",
+    "CoinDesk":   "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml",
+    "Decrypt":    "https://decrypt.co/feed",
 }
 
 # ── AI & ROBOTICA ──

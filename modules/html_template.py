@@ -957,6 +957,7 @@ def generate_html(data):
     cal_html      = render_calendar(data.get("calendar", {}))
     news_html     = render_news_section(data.get("news", []))
     cb_news_html  = render_news_section(data.get("cb_news", []), "No central bank news in the last 48h.")
+    crypto_news_html = render_news_section(data.get("crypto_news", []), "No crypto news in the last 24h.")
     sentiment_html = render_sentiment(data.get("sentiment", {}), vix_data, analyses.get("sentiment",""))
     cot_html       = render_cot_positioning(data.get("cot"))
     crypto_html   = render_crypto(data.get("crypto", {}), analyses.get("crypto",{}))
@@ -1326,6 +1327,15 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
     <span class="section-sub">Volume 24h + Open Interest — Deribit (public API)</span>
   </div>
   <div class="section-body">{pc_html}</div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-icon">🪙</span>
+    <span class="section-title">Crypto News — Last 24h</span>
+    <span class="section-sub">The Block · CoinDesk · Decrypt</span>
+  </div>
+  <div class="section-body">{crypto_news_html}</div>
 </div>
 
 <div class="section">

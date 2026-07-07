@@ -376,6 +376,32 @@ def get_general_news():
 
 
 # ────────────────────────────────────────────────────────────────────
+# SEZIONE: Crypto-native news
+# ────────────────────────────────────────────────────────────────────
+
+def get_crypto_news():
+    """
+    Crypto-native breaking news (The Block, CoinDesk, Decrypt).
+    Nessun filtro keyword: le fonti sono già interamente crypto.
+    """
+    print("[News] Fetching crypto-native news...")
+    all_articles = []
+    for name, url in getattr(config, "RSS_FEEDS_CRYPTO", {}).items():
+        if not url:
+            continue
+        arts = fetch_rss_feed(name, url, filter_keywords=None, hours_back=config.NEWS_HOURS_BACK)
+        all_articles.extend(arts)
+        print(f"  {name}: {len(arts)} articoli")
+    result = deduplicate_with_source_limit(
+        all_articles,
+        max_total=getattr(config, "MAX_NEWS_CRYPTO", 8),
+        max_per_source=3,
+    )
+    print(f"[News] Crypto news totali: {len(result)}")
+    return result
+
+
+# ────────────────────────────────────────────────────────────────────
 # SEZIONE 2: Banche Centrali
 # ────────────────────────────────────────────────────────────────────
 
