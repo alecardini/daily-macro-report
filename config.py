@@ -35,7 +35,7 @@ COINALYZE_API_KEY = "1434edfb-bf93-4be7-a5cc-cdea8ddc385d"
 # Key gratuita da https://aistudio.google.com (free tier, ~1500 req/giorno, no carta).
 # Usata per generare 2 righe di sintesi in cima alle sezioni news. Fallback: nessuna sintesi.
 GEMINI_API_KEY = "AQ.Ab8RN6KelteYcAbvQV0z6t7dSqFpZxEkwT0EGc-_ihwalfvUcQ"
-GEMINI_MODEL   = "gemini-2.5-flash"
+GEMINI_MODEL   = "gemini-3.5-flash"   # il modello free PIÙ capace con budget sulla key (i 3.x/2.5 -pro hanno RPD 0). Con chiamata singola (1/run) sta nei limiti.
 
 # =============================================================================
 # IMPOSTAZIONI REPORT
