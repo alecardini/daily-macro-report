@@ -398,6 +398,82 @@ def get_fx_majors():
     return {k: v for k, v in results.items() if v}
 
 
+def get_overnight_moves():
+    """
+    Movimenti overnight cross-asset su finestra FISSA: 22:00 (ieri) Rome → ora.
+    'Cosa è successo mentre dormivi' (US close → sessione asiatica → pre-market EU).
+    Intraday via yf.download batchato (1 call, con retry) + Binance klines per crypto.
+    RATES ESCLUSI (il cash Treasury non trada di notte — scelta utente).
+    """
+    print("[MarketData] Fetching overnight cross-asset moves...")
+    ROME = pytz.timezone("Europe/Rome")
+    now = datetime.now(ROME)
+    anchor = now.replace(hour=22, minute=0, second=0, microsecond=0)
+    if now < anchor:               # se generato dopo le 22, l'anchor è oggi; altrimenti ieri
+        anchor -= timedelta(days=1)
+    ws_utc = anchor.astimezone(timezone.utc)
+    window_label = f"{anchor.strftime('%H:%M')} → {now.strftime('%H:%M')} (Rome)"
+
+    groups = {
+        "Equity Futures": [("ES=F", "S&P"), ("NQ=F", "Nasdaq"), ("YM=F", "Dow")],
+        "FX":             [("USDJPY=X", "USD/JPY"), ("EURUSD=X", "EUR/USD"),
+                           ("GBPUSD=X", "GBP/USD"), ("USDCNY=X", "USD/CNY")],
+        "Commodities":    [("GC=F", "Gold"), ("CL=F", "WTI")],
+    }
+    all_syms = [s for g in groups.values() for s, _ in g]
+
+    closes = {}
+    for attempt in range(3):
+        try:
+            df = yf.download(all_syms, period="2d", interval="30m",
+                             group_by="ticker", progress=False, threads=False)
+            for sym in all_syms:
+                try:
+                    s = df[sym]["Close"].dropna()
+                    if len(s) < 2:
+                        continue
+                    idx = s.index.tz_convert("UTC")
+                    deltas = [abs((t.to_pydatetime() - ws_utc).total_seconds()) for t in idx]
+                    i = deltas.index(min(deltas))
+                    closes[sym] = (float(s.iloc[i]), float(s.iloc[-1]))
+                except Exception:
+                    pass
+            if closes:
+                break
+        except Exception as e:
+            print(f"[MarketData] overnight download retry {attempt+1}: {e}")
+        time.sleep(2 * (attempt + 1))
+
+    def _item(short, then, cur):
+        pct = (cur - then) / then * 100
+        return {"name": short, "pct_fmt": f"{pct:+.2f}%",
+                "direction": "up" if pct > 0 else "down" if pct < 0 else "neutral"}
+
+    result = {"window_label": window_label}
+    for label, syms in groups.items():
+        items = []
+        for sym, short in syms:
+            if sym in closes and closes[sym][0]:
+                items.append(_item(short, *closes[sym]))
+        result[label] = items
+
+    # Crypto via Binance klines (stessa finestra)
+    crypto_items = []
+    start_ms = int(ws_utc.timestamp() * 1000)
+    for pair, short in [("BTCUSDT", "BTC"), ("ETHUSDT", "ETH")]:
+        try:
+            k = requests.get("https://api.binance.com/api/v3/klines",
+                             params={"symbol": pair, "interval": "1h",
+                                     "startTime": start_ms, "limit": 24},
+                             headers={"User-Agent": "Mozilla/5.0"}, timeout=10).json()
+            if k and len(k) >= 1 and float(k[0][1]):
+                crypto_items.append(_item(short, float(k[0][1]), float(k[-1][4])))
+        except Exception:
+            pass
+    result["Crypto"] = crypto_items
+    return result
+
+
 def get_other_assets():
     """Fetch DXY, Gold, Silver, Copper prices."""
     print("[MarketData] Fetching commodities and DXY...")

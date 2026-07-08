@@ -893,54 +893,32 @@ def render_sector_rotation(sr_data):
 # ─────────────────────────────────────────────────────────────
 
 def render_overnight_recap(data):
-    futures = data.get("futures", {}) or {}
-    yields  = data.get("yields", {}) or {}
-    fx      = data.get("fx", {}) or {}
-    assets  = data.get("other_assets", {}) or {}
-    crypto  = (data.get("crypto", {}) or {}).get("prices", {}) or {}
+    # Basato sulla finestra FISSA 22:00→ora (data['overnight']), non più su 'vs chiusura'.
+    # Rates esclusi (cash Treasury non trada di notte). I FATTI + sintesi descrittiva.
+    ov = data.get("overnight", {}) or {}
 
     def chip(label, change, direction):
         dr = direction or "neutral"
         return f'<span class="ovr-chip"><span class="ovr-lbl">{label}</span><span class="ovr-val {cc(dr)}">{arrow(dr)} {change}</span></span>'
 
     groups = []
-    eq = [chip(s, futures[k]["pct_fmt"], futures[k].get("direction"))
-          for k, s in [("S&P 500 Futures","S&P"), ("Nasdaq Futures","Nasdaq"), ("Dow Futures","Dow")]
-          if futures.get(k) and futures[k].get("pct_fmt","N/A") != "N/A"]
-    if eq: groups.append(("Equity Futures", eq))
-
-    rt = [chip(s, yields[k]["change_bps_fmt"], yields[k].get("direction"))
-          for k, s in [("2Y Yield","2Y"), ("10Y Yield","10Y")]
-          if yields.get(k) and yields[k].get("change_bps_fmt")]
-    if rt: groups.append(("Rates", rt))
-
-    fxg = [chip(k, fx[k]["pct_fmt"], fx[k].get("direction"))
-           for k in ("USD/JPY", "EUR/USD")
-           if fx.get(k) and fx[k].get("pct_fmt","N/A") != "N/A"]
-    if fxg: groups.append(("FX", fxg))
-
-    cm = [chip(s, assets[k]["pct_fmt"], assets[k].get("direction"))
-          for k, s in [("Gold","Gold"), ("WTI Crude Oil","WTI")]
-          if assets.get(k) and assets[k].get("pct_fmt","N/A") != "N/A"]
-    if cm: groups.append(("Commodities", cm))
-
-    cr = [chip(k, crypto[k]["change_24h_fmt"], crypto[k].get("direction"))
-          for k in ("BTC", "ETH")
-          if crypto.get(k) and crypto[k].get("change_24h_fmt")]
-    if cr: groups.append(("Crypto", cr))
+    for label in ["Equity Futures", "FX", "Commodities", "Crypto"]:
+        chips = [chip(it["name"], it["pct_fmt"], it["direction"]) for it in ov.get(label, [])]
+        if chips:
+            groups.append((label, chips))
 
     if not groups:
         return ""
 
-    # I FATTI cross-asset in un colpo d'occhio + una sintesi DESCRITTIVA (non un verdetto
-    # risk-on/off): fotografa i movimenti, la decisione la fa il trader (scelta utente).
     syn = (data.get("recap_synthesis") or "").strip()
     syn_html = f'<div class="news-synthesis"><span class="syn-tag">SO WHAT</span> {syn}</div>' if syn else ""
+    window = ov.get("window_label", "")
+    win_html = f'<div class="ovr-window">Overnight window (US close → now): {window}</div>' if window else ""
     cols = "".join(
         f'<div class="ovr-group"><div class="ovr-gt">{title}</div><div class="ovr-chips">{"".join(chips)}</div></div>'
         for title, chips in groups
     )
-    return f'{syn_html}<div class="ovr-wrap">{cols}</div>'
+    return f'{syn_html}{win_html}<div class="ovr-wrap">{cols}</div>'
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1168,6 +1146,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .ovr-chip{{display:flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:5px 10px;font-size:11px}}
 .ovr-lbl{{color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.5px}}
 .ovr-val{{font-weight:700}}
+.ovr-window{{font-size:10px;color:var(--text3);margin-bottom:12px}}
 
 /* SO-WHAT SYNTHESIS (Gemini) */
 .news-synthesis{{background:var(--bg3);border-left:3px solid var(--acc);border-radius:6px;padding:11px 14px;margin-bottom:14px;font-size:12px;line-height:1.55;color:var(--text2)}}
@@ -1251,7 +1230,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
   <div class="section-header">
     <span class="section-icon">🌍</span>
     <span class="section-title">Overnight Cross-Asset Recap</span>
-    <span class="section-sub">Overnight moves — reused from sections below (no re-fetch)</span>
+    <span class="section-sub">Fixed window since prior US close (~22:00 Rome) → now · intraday</span>
   </div>
   <div class="section-body">{overnight_html}</div>
 </div>''' if overnight_html else ''}

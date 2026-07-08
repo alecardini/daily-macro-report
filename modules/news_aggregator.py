@@ -351,29 +351,20 @@ def get_news_synthesis(articles, context="financial markets"):
 def get_recap_synthesis(data):
     """
     Sintesi DESCRITTIVA (non prescrittiva) dei movimenti overnight cross-asset via Gemini.
-    Niente verdetto risk-on/off né consigli — solo fotografia dei movimenti + coerenza/divergenza.
+    Basata sulla finestra FISSA 22:00→ora (data['overnight']). Niente verdetto risk-on/off
+    né consigli — solo fotografia dei movimenti + coerenza/divergenza.
     """
-    groups = [
-        ("Equity futures", data.get("futures", {}), "pct_fmt"),
-        ("FX",             data.get("fx", {}),      "pct_fmt"),
-        ("Commodities",    data.get("other_assets", {}), "pct_fmt"),
-        ("Crypto",         (data.get("crypto", {}) or {}).get("prices", {}), "change_24h_fmt"),
-    ]
+    ov = data.get("overnight", {}) or {}
     lines = []
-    for label, d, field in groups:
-        for name, v in (d or {}).items():
-            if isinstance(v, dict) and v.get(field, "N/A") not in ("N/A", None, ""):
-                lines.append(f"{label} — {name}: {v[field]}")
-    # rates in bps
-    for k in ("2Y Yield", "10Y Yield"):
-        v = (data.get("yields", {}) or {}).get(k)
-        if v and v.get("change_bps_fmt"):
-            lines.append(f"Rates — {k}: {v['change_bps_fmt']}")
+    for label in ["Equity Futures", "FX", "Commodities", "Crypto"]:
+        for it in ov.get(label, []):
+            lines.append(f"{label} — {it['name']}: {it['pct_fmt']}")
     moves = "\n".join(lines)
     if not moves.strip():
         return ""
     prompt = (
-        "You are a markets desk analyst. Below are the overnight cross-asset moves.\n"
+        "You are a markets desk analyst. Below are the OVERNIGHT cross-asset moves "
+        "(since the prior US close through the Asian session).\n"
         "Write a 1-2 sentence DESCRIPTIVE synthesis of the overnight session: what moved and "
         "whether the cross-asset picture is coherent or mixed/divergent.\n"
         "STRICT: describe ONLY these moves. Do NOT give a risk-on/risk-off verdict, do NOT give "
