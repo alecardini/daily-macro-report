@@ -266,6 +266,8 @@ CALENDAR_BLACKLIST_CURRENCY = [
     ("10-y Bond Auction", "JPY"),   # Japan bond auction
     ("10-y Bond Auction", "GBP"),   # UK gilt auction
     ("30-y Bond Auction", "JPY"),   # Japan 30y bond auction (USD 30y resta visibile)
+    ("Employment Change", "CAD"),   # Canada jobs — rimosso (USD/AUD restano)
+    ("Unemployment Rate", "CAD"),   # Canada — rimosso (USD/AUD restano)
 ]
 
 # =============================================================================
@@ -295,6 +297,7 @@ CALENDAR_IMPACT_HIGH = [
     ("10-y Bond Auction",         "USD"),   # 10-Year Note Auction USD → alto
     ("30-y Bond Auction",         "USD"),   # 30-Year Bond Auction USD → alto (JPY resta escluso da blacklist)
     ("Existing Home Sales",       "USD"),   # USD → alto
+    ("German Final CPI",          "EUR"),   # German Final CPI m/m → alto
 ]
 
 # =============================================================================

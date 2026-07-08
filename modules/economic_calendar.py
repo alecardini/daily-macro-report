@@ -14,6 +14,24 @@ import config
 
 ROME_TZ = pytz.timezone("Europe/Rome")
 
+# Timezone per paese/valuta — REGOLA GENERALE per collocare le FESTIVITÀ nel giorno
+# corretto: le all-day di Forex Factory vanno lette nel fuso LOCALE del paese, non in
+# ora di Roma (altrimenti per i paesi a est — NZ +12, JP +9, AU +10, CN +8 — la data
+# slitta al giorno prima). Vale per qualsiasi festività di qualsiasi paese.
+CURRENCY_TZ = {
+    "USD": pytz.timezone("America/New_York"),
+    "EUR": pytz.timezone("Europe/Berlin"),
+    "GBP": pytz.timezone("Europe/London"),
+    "JPY": pytz.timezone("Asia/Tokyo"),
+    "CNY": pytz.timezone("Asia/Shanghai"),
+    "AUD": pytz.timezone("Australia/Sydney"),
+    "NZD": pytz.timezone("Pacific/Auckland"),
+    "CAD": pytz.timezone("America/Toronto"),
+    "CHF": pytz.timezone("Europe/Zurich"),
+    "SEK": pytz.timezone("Europe/Stockholm"),
+    "NOK": pytz.timezone("Europe/Oslo"),
+}
+
 # Rinomina eventi "rate decision" con nome banca centrale leggibile.
 # Chiave: sottostringa (lowercase) nel titolo FF → valore: nome da mostrare
 _RATE_DECISION_RENAME = {
@@ -328,11 +346,18 @@ def _parse_ff_json(data, target_dates):
             date_str = event.get("date", "")
             if not date_str:
                 continue
-            event_dt_rome = datetime.fromisoformat(date_str).astimezone(ROME_TZ)
-            if event_dt_rome.date() not in target_dates:
+            event_dt = datetime.fromisoformat(date_str)
+            event_dt_rome = event_dt.astimezone(ROME_TZ)
+            # FESTIVITÀ: data nel fuso del PAESE (regola generale via CURRENCY_TZ), non di Roma,
+            # altrimenti slitta al giorno prima per i paesi a est. Eventi orari: restano su Roma.
+            if is_holiday:
+                event_dt_for_date = event_dt.astimezone(CURRENCY_TZ.get(currency, ROME_TZ))
+            else:
+                event_dt_for_date = event_dt_rome
+            if event_dt_for_date.date() not in target_dates:
                 continue
 
-            day_key = event_dt_rome.strftime("%A %d %B")
+            day_key = event_dt_for_date.strftime("%A %d %B")
             if day_key not in result:
                 result[day_key] = []
 
