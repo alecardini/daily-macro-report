@@ -175,13 +175,11 @@ RSS_FEEDS = {**RSS_FEEDS_FINANCE, **RSS_FEEDS_WORLD}
 RSS_FEEDS_CENTRAL_BANKS = {
     "Federal Reserve":        "https://www.federalreserve.gov/feeds/press_all.xml",
     "ECB":                    "https://www.ecb.europa.eu/rss/press.html",
-    "BIS":                    "https://www.bis.org/rss/presrel.rss",
-    "Bank of England":        "https://www.bankofengland.co.uk/rss/news",
-    "Bank of Japan":          "https://www.boj.or.jp/en/rss/whatsnew.xml",
+    "Bank of England":        "https://www.bankofengland.co.uk/rss/news",   # verificato 08/07: 200, 50 art
+    "Bank of Japan":          "https://www.boj.or.jp/en/rss/whatsnew.xml",  # verificato 08/07: 200, 48 art
     "Bloomberg - Economics":  "https://feeds.bloomberg.com/economics/news.rss",
-    # NB: BIS/BoE/BoJ irraggiungibili dal sandbox di sviluppo (restrizione rete) —
-    # da verificare che si popolino nel run reale sul Mac; falliscono in silenzio se no.
-    # CNBC Economy rimosso (feed raggiungibile ma restituiva 0 articoli — Fed/ECB/BoE/BoJ/BIS coprono meglio).
+    # BIS rimosso (08/07): tutti gli URL RSS testati davano 404 o 0 articoli. CNBC Economy
+    # rimosso (0 art). Fed/ECB/BoE/BoJ + Bloomberg = copertura banche centrali sufficiente.
 }
 
 # ── CRYPTO-NATIVE (verificate dal vivo 07/07/2026) ──
