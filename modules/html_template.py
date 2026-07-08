@@ -925,6 +925,18 @@ def render_overnight_recap(data):
 # FULL HTML
 # ─────────────────────────────────────────────────────────────
 
+def _safe(fn, *args, **kwargs):
+    """Isola il rendering per-sezione: se una render function fallisce (dato malformato),
+    il report NON si pianta — mostra 'section unavailable' e continua (robustezza ROLE)."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as e:
+        import traceback
+        print(f"[Render] {getattr(fn, '__name__', '?')} error: {e}")
+        traceback.print_exc()
+        return "<p class='no-data'>Section temporarily unavailable — data not available.</p>"
+
+
 def generate_html(data):
     now_rome = datetime.now(ROME_TZ)
     gen_time = now_rome.strftime("%d %B %Y — %H:%M (Roma)")
@@ -933,24 +945,24 @@ def generate_html(data):
     analyses = data.get("analyses", {})
     vix_data = data.get("indices", {}).get("VIX", {})
 
-    overnight_html = render_overnight_recap(data)
-    earnings_html = render_earnings(data.get("earnings", {}))
-    cal_html      = render_calendar(data.get("calendar", {}))
     _syn          = data.get("synthesis", {}) or {}
-    news_html     = render_news_section(data.get("news", []), synthesis=_syn.get("news",""))
-    cb_news_html  = render_news_section(data.get("cb_news", []), "No central bank news in the last 48h.", synthesis=_syn.get("cb_news",""))
-    crypto_news_html = render_news_section(data.get("crypto_news", []), "No crypto news in the last 24h.", synthesis=_syn.get("crypto_news",""))
-    sentiment_html = render_sentiment(data.get("sentiment", {}), vix_data, analyses.get("sentiment",""))
-    cot_html       = render_cot_positioning(data.get("cot"))
-    crypto_html   = render_crypto(data.get("crypto", {}), analyses.get("crypto",{}))
-    stablecoin_html = render_stablecoin_liquidity(data.get("stablecoin", {}))
-    indices_html  = render_indices(data.get("indices",{}), data.get("futures",{}), data.get("yields",{}), analyses.get("indices",""))
-    asia_html     = render_asia(data.get("asia", {}))
-    assets_html   = render_other_assets(data.get("other_assets",{}), data.get("gold_etf",{}), analyses.get("assets",{}), data.get("fx",{}))
-    oil_news_html = render_news_section(data.get("oil_news", []), "No Oil & Energy news available.", synthesis=_syn.get("oil_news",""))
-    pc_html       = render_pc_ratios(data.get("pc_ratios", {}))
-    sector_html   = render_sector_rotation(data.get("sector_rotation", {}))
-    ai_html       = render_news_section(data.get("ai_news", []), "No AI & Robotics news available.", synthesis=_syn.get("ai_news",""))
+    overnight_html = _safe(render_overnight_recap, data)
+    earnings_html = _safe(render_earnings, data.get("earnings", {}))
+    cal_html      = _safe(render_calendar, data.get("calendar", {}))
+    news_html     = _safe(render_news_section, data.get("news", []), synthesis=_syn.get("news",""))
+    cb_news_html  = _safe(render_news_section, data.get("cb_news", []), "No central bank news in the last 48h.", synthesis=_syn.get("cb_news",""))
+    crypto_news_html = _safe(render_news_section, data.get("crypto_news", []), "No crypto news in the last 24h.", synthesis=_syn.get("crypto_news",""))
+    sentiment_html = _safe(render_sentiment, data.get("sentiment", {}), vix_data, analyses.get("sentiment",""))
+    cot_html       = _safe(render_cot_positioning, data.get("cot"))
+    crypto_html   = _safe(render_crypto, data.get("crypto", {}), analyses.get("crypto",{}))
+    stablecoin_html = _safe(render_stablecoin_liquidity, data.get("stablecoin", {}))
+    indices_html  = _safe(render_indices, data.get("indices",{}), data.get("futures",{}), data.get("yields",{}), analyses.get("indices",""))
+    asia_html     = _safe(render_asia, data.get("asia", {}))
+    assets_html   = _safe(render_other_assets, data.get("other_assets",{}), data.get("gold_etf",{}), analyses.get("assets",{}), data.get("fx",{}))
+    oil_news_html = _safe(render_news_section, data.get("oil_news", []), "No Oil & Energy news available.", synthesis=_syn.get("oil_news",""))
+    pc_html       = _safe(render_pc_ratios, data.get("pc_ratios", {}))
+    sector_html   = _safe(render_sector_rotation, data.get("sector_rotation", {}))
+    ai_html       = _safe(render_news_section, data.get("ai_news", []), "No AI & Robotics news available.", synthesis=_syn.get("ai_news",""))
 
     return f"""<!DOCTYPE html>
 <html lang="en">
