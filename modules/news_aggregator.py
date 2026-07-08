@@ -305,23 +305,24 @@ def _gemini_generate(prompt, max_tokens=220):
     if not key or key.startswith("YOUR_"):
         return ""
     model = getattr(config, "GEMINI_MODEL", "gemini-2.5-flash")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+    body = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.3,
+            "maxOutputTokens": max_tokens,
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
+    }
+    # Una sola chiamata (get_all_syntheses fa TUTTE le sintesi in 1 richiesta → free tier
+    # 2.5-flash 20/giorno = 1 run/mattina usa 1/20). Fallback pulito su qualsiasi errore.
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-        body = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.3,
-                "maxOutputTokens": max_tokens,
-                "thinkingConfig": {"thinkingBudget": 0},
-            },
-        }
-        r = requests.post(url, json=body, timeout=20)
+        r = requests.post(url, json=body, timeout=25)
         if r.status_code != 200:
             print(f"[News] Gemini {r.status_code} — fallback (nessuna sintesi)")
             return ""
         cand = r.json().get("candidates", [{}])[0]
-        txt = "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", []))
-        return txt.strip()
+        return "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", [])).strip()
     except Exception as e:
         print(f"[News] Gemini error: {e}")
         return ""
@@ -372,6 +373,56 @@ def get_recap_synthesis(data):
         f"MOVES:\n{moves}"
     )
     return _gemini_generate(prompt)
+
+
+def get_all_syntheses(data):
+    """
+    UNA SOLA chiamata Gemini per TUTTE le sintesi (5 sezioni news + recap overnight) →
+    evita il rate-limit del free tier (prima erano 6 chiamate ravvicinate → 429).
+    Ritorna dict {news, cb_news, crypto_news, oil_news, ai_news, recap}. Fallback: {}.
+    """
+    sections = [
+        ("news",        data.get("news", []),        "financial & geopolitical"),
+        ("cb_news",     data.get("cb_news", []),     "central bank / monetary policy"),
+        ("crypto_news", data.get("crypto_news", []), "crypto"),
+        ("oil_news",    data.get("oil_news", []),    "oil & energy"),
+        ("ai_news",     data.get("ai_news", []),     "AI & technology"),
+    ]
+    blocks = []
+    for key, arts, ctx in sections:
+        hs = "\n".join(f"- {a.get('title','')}" for a in (arts or [])[:12] if a.get("title"))
+        if hs.strip():
+            blocks.append(f"[{key}] ({ctx} headlines):\n{hs}")
+    ov = data.get("overnight", {}) or {}
+    mlines = [f"{lab} — {it['name']}: {it['pct_fmt']}"
+              for lab in ["Equity Futures", "FX", "Commodities", "Crypto"]
+              for it in ov.get(lab, [])]
+    if mlines:
+        blocks.append("[recap] (overnight cross-asset moves since prior US close):\n" + "\n".join(mlines))
+    if not blocks:
+        return {}
+    prompt = (
+        "You are a markets desk analyst. For EACH labeled block below, write a 2-sentence "
+        "'so what' synthesis. News blocks: dominant theme(s) + implication for risk sentiment. "
+        "[recap]: DESCRIPTIVE only — what moved and whether the cross-asset picture is coherent or "
+        "mixed; NO risk-on/off verdict, NO trading advice.\n"
+        "STRICT: use ONLY the given items, do NOT add external facts/numbers.\n"
+        "Return ONLY a JSON object mapping each block label (e.g. \"news\", \"cb_news\", \"recap\") "
+        "to its synthesis string. No preamble, no markdown fences.\n\n"
+        + "\n\n".join(blocks)
+    )
+    raw = _gemini_generate(prompt, max_tokens=900)
+    if not raw:
+        return {}
+    import json
+    m = re.search(r'\{.*\}', raw, re.S)   # robusto a eventuali fence ```json
+    if not m:
+        return {}
+    try:
+        obj = json.loads(m.group(0))
+        return {k: (v or "").strip() for k, v in obj.items() if isinstance(v, str)}
+    except Exception:
+        return {}
 
 
 def _enrich_selected(articles):
