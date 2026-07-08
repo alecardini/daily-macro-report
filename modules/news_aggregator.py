@@ -445,8 +445,9 @@ def deduplicate_with_source_limit(articles, max_total=14, max_per_source=None):
         if len(result) >= max_total:
             break
 
-    # Arricchisce (traduzione + full-text) SOLO i finali selezionati, in parallelo.
-    result = _enrich_selected(result)
+    # NB: l'arricchimento (traduzione + full-text) NON avviene più qui — è spostato
+    # dopo la dedup cross-sezione + trim finale (in generate_report), così si arricchiscono
+    # solo gli articoli davvero mostrati. Qui si ritorna un POOL di candidati ordinati.
     return result
 
 
@@ -456,13 +457,17 @@ def deduplicate_across_sections(ordered_sections):
     l'articolo, le successive lo scartano → ogni notizia appare UNA SOLA VOLTA in tutto
     il report. Ordine (specializzate prima, Breaking ultima come catch-all):
     Central Banks > Crypto > AI > Oil > Breaking.
-    ordered_sections: lista di (key, articles). Ritorna dict {key: articles_filtrati}.
+    ordered_sections: lista di (key, articles_pool, max_display). Ogni sezione riceve un POOL
+    di candidati ordinati per impatto; qui si scartano i duplicati globali e si tiene fino a
+    max_display → BACKFILL automatico coi migliori rimasti (niente slot vuoti). Ritorna {key: articles}.
     """
     seen_titles = []
     result = {}
-    for key, articles in ordered_sections:
+    for key, articles, max_display in ordered_sections:
         kept = []
         for art in (articles or []):
+            if len(kept) >= max_display:
+                break
             words = set((art.get("title", "")).lower().split())
             if not words:
                 continue
@@ -531,7 +536,7 @@ def get_general_news():
     if newsapi_arts:
         print(f"  NewsAPI: {len(newsapi_arts)} articoli")
 
-    result = deduplicate_with_source_limit(all_articles, max_total=config.MAX_NEWS_GENERAL, max_per_source=2)
+    result = deduplicate_with_source_limit(all_articles, max_total=30, max_per_source=2)  # POOL — trim finale dopo dedup cross-sezione
     print(f"[News] Breaking news totali: {len(result)} da {len(set(a['source'] for a in result))} fonti")
     return result
 
@@ -555,7 +560,7 @@ def get_crypto_news():
         print(f"  {name}: {len(arts)} articoli")
     result = deduplicate_with_source_limit(
         all_articles,
-        max_total=getattr(config, "MAX_NEWS_CRYPTO", 8),
+        max_total=20,  # POOL
         max_per_source=3,
     )
     print(f"[News] Crypto news totali: {len(result)}")
@@ -600,7 +605,7 @@ def get_central_bank_news():
     newsapi_arts = fetch_newsapi(category="central_banks")
     all_articles.extend(newsapi_arts)
 
-    result = deduplicate_with_source_limit(all_articles, max_total=config.MAX_NEWS_CENTRAL_BANKS, max_per_source=3)
+    result = deduplicate_with_source_limit(all_articles, max_total=20, max_per_source=3)  # POOL
     print(f"[News] CB news totali: {len(result)}")
     return result
 
@@ -637,7 +642,7 @@ def get_oil_news():
             all_articles.extend(arts)
             print(f"  {name}: {len(arts)} articoli (oil/energy)")
 
-    result = deduplicate_with_source_limit(all_articles, max_total=8, max_per_source=2)
+    result = deduplicate_with_source_limit(all_articles, max_total=20, max_per_source=2)  # POOL
     print(f"[News] Oil news totali: {len(result)}")
     return result
 
@@ -665,6 +670,6 @@ def get_ai_robotics_news():
     newsapi_arts = fetch_newsapi(category="ai")
     all_articles.extend(newsapi_arts)
 
-    result = deduplicate_with_source_limit(all_articles, max_total=config.MAX_NEWS_AI, max_per_source=2)
+    result = deduplicate_with_source_limit(all_articles, max_total=20, max_per_source=2)  # POOL
     print(f"[News] AI news totali: {len(result)}")
     return result

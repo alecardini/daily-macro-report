@@ -132,18 +132,21 @@ def main():
         if not data.get(k):
             data[k] = [] if k != "calendar" else {}
 
-    # ── Dedup CROSS-sezione: ogni notizia una volta sola. Priorità: specializzate
-    #    prima (Central Banks > Crypto > AI > Oil), Breaking News ultima (catch-all). ──
-    from modules.news_aggregator import deduplicate_across_sections
+    # ── Dedup CROSS-sezione (zero duplicati) + trim finale con BACKFILL. Priorità:
+    #    Central Banks > Crypto > AI > Oil > Breaking (catch-all). Le sezioni pescano un
+    #    pool ampio; qui si taglia al numero finale ripescando i migliori rimasti. ──
+    import config as _cfg
+    from modules.news_aggregator import deduplicate_across_sections, _enrich_selected
     _deduped = deduplicate_across_sections([
-        ("cb_news",     data.get("cb_news", [])),
-        ("crypto_news", data.get("crypto_news", [])),
-        ("ai_news",     data.get("ai_news", [])),
-        ("oil_news",    data.get("oil_news", [])),
-        ("news",        data.get("news", [])),
+        ("cb_news",     data.get("cb_news", []),     getattr(_cfg, "MAX_NEWS_CENTRAL_BANKS", 8)),
+        ("crypto_news", data.get("crypto_news", []), getattr(_cfg, "MAX_NEWS_CRYPTO", 8)),
+        ("ai_news",     data.get("ai_news", []),     getattr(_cfg, "MAX_NEWS_AI", 6)),
+        ("oil_news",    data.get("oil_news", []),    getattr(_cfg, "MAX_NEWS_OIL", 8)),
+        ("news",        data.get("news", []),        getattr(_cfg, "MAX_NEWS_GENERAL", 12)),
     ])
+    # Arricchimento (traduzione + full-text) SOLO sui finali mostrati, in parallelo.
     for _k, _v in _deduped.items():
-        data[_k] = _v
+        data[_k] = _enrich_selected(_v)
 
     # ── Sintesi 'so what' via Gemini (fallback sicuro: nessuna sintesi) ──
     from modules.news_aggregator import get_news_synthesis, get_recap_synthesis
