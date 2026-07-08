@@ -132,6 +132,19 @@ def main():
         if not data.get(k):
             data[k] = [] if k != "calendar" else {}
 
+    # ── Dedup CROSS-sezione: ogni notizia una volta sola. Priorità: specializzate
+    #    prima (Central Banks > Crypto > AI > Oil), Breaking News ultima (catch-all). ──
+    from modules.news_aggregator import deduplicate_across_sections
+    _deduped = deduplicate_across_sections([
+        ("cb_news",     data.get("cb_news", [])),
+        ("crypto_news", data.get("crypto_news", [])),
+        ("ai_news",     data.get("ai_news", [])),
+        ("oil_news",    data.get("oil_news", [])),
+        ("news",        data.get("news", [])),
+    ])
+    for _k, _v in _deduped.items():
+        data[_k] = _v
+
     # ── Sintesi 'so what' via Gemini (fallback sicuro: nessuna sintesi) ──
     from modules.news_aggregator import get_news_synthesis, get_recap_synthesis
     print("\nGenerating 'so what' synthesis (Gemini)...")

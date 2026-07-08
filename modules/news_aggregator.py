@@ -450,6 +450,33 @@ def deduplicate_with_source_limit(articles, max_total=14, max_per_source=None):
     return result
 
 
+def deduplicate_across_sections(ordered_sections):
+    """
+    Deduplica CROSS-sezione con PRIORITÀ: le sezioni processate prima 'reclamano'
+    l'articolo, le successive lo scartano → ogni notizia appare UNA SOLA VOLTA in tutto
+    il report. Ordine (specializzate prima, Breaking ultima come catch-all):
+    Central Banks > Crypto > AI > Oil > Breaking.
+    ordered_sections: lista di (key, articles). Ritorna dict {key: articles_filtrati}.
+    """
+    seen_titles = []
+    result = {}
+    for key, articles in ordered_sections:
+        kept = []
+        for art in (articles or []):
+            words = set((art.get("title", "")).lower().split())
+            if not words:
+                continue
+            is_dup = any(
+                len(words & set(s.lower().split())) / max(len(words), 1) > 0.55
+                for s in seen_titles
+            )
+            if not is_dup:
+                kept.append(art)
+                seen_titles.append(art.get("title", ""))
+        result[key] = kept
+    return result
+
+
 # ────────────────────────────────────────────────────────────────────
 # SEZIONE 1: Breaking News Generali (Finanza + Geopolitica + Attualità)
 # ────────────────────────────────────────────────────────────────────
