@@ -314,18 +314,32 @@ def _gemini_generate(prompt, max_tokens=220):
             "thinkingConfig": {"thinkingBudget": 0},
         },
     }
-    # Una sola chiamata (get_all_syntheses fa TUTTE le sintesi in 1 richiesta → free tier
-    # 2.5-flash 20/giorno = 1 run/mattina usa 1/20). Fallback pulito su qualsiasi errore.
-    try:
-        r = requests.post(url, json=body, timeout=25)
-        if r.status_code != 200:
+    # Get_all_syntheses fa TUTTE le sintesi in 1 richiesta (free tier ~20/giorno = 1 run
+    # usa ~1/20). Retry SOLO sugli errori transitori del server (503/500/502 overload) e
+    # timeout/network — NON sul 429 (quota esaurita, inutile insistere) né sugli altri 4xx.
+    _TRANSIENT = {500, 502, 503, 504}
+    backoffs = [2, 5]   # 3 tentativi totali
+    for attempt in range(len(backoffs) + 1):
+        try:
+            r = requests.post(url, json=body, timeout=25)
+            if r.status_code == 200:
+                cand = r.json().get("candidates", [{}])[0]
+                return "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", [])).strip()
+            if r.status_code in _TRANSIENT and attempt < len(backoffs):
+                print(f"[News] Gemini {r.status_code} (transient) — retry {attempt+1}/{len(backoffs)}")
+                time.sleep(backoffs[attempt])
+                continue
+            # 429 (quota) o altri 4xx, oppure transitorio dopo l'ultimo tentativo → mollo
             print(f"[News] Gemini {r.status_code} — fallback (nessuna sintesi)")
             return ""
-        cand = r.json().get("candidates", [{}])[0]
-        return "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", [])).strip()
-    except Exception as e:
-        print(f"[News] Gemini error: {e}")
-        return ""
+        except Exception as e:
+            if attempt < len(backoffs):
+                print(f"[News] Gemini error ({e}) — retry {attempt+1}/{len(backoffs)}")
+                time.sleep(backoffs[attempt])
+                continue
+            print(f"[News] Gemini error: {e}")
+            return ""
+    return ""
 
 
 def get_news_synthesis(articles, context="financial markets"):
