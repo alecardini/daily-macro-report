@@ -423,12 +423,18 @@ def get_overnight_moves():
     all_syms = [s for g in groups.values() for s, _ in g]
 
     closes = {}
-    for attempt in range(3):
+    for attempt in range(4):
+        # Ri-scarica SOLO i simboli ancora mancanti: sotto throttling Yahoo il batch
+        # torna parziale (es. gli FX arrivano, i futures no) — non accontentarsi.
+        missing = [s for s in all_syms if s not in closes]
+        if not missing:
+            break
         try:
-            df = yf.download(all_syms, period="2d", interval="30m",
+            df = yf.download(missing, period="2d", interval="30m",
                              group_by="ticker", progress=False, threads=False)
-            for sym in all_syms:
+            for sym in missing:
                 try:
+                    # group_by="ticker" annida sempre sotto il ticker (anche 1 simbolo)
                     s = df[sym]["Close"].dropna()
                     if len(s) < 2:
                         continue
@@ -438,7 +444,7 @@ def get_overnight_moves():
                     closes[sym] = (float(s.iloc[i]), float(s.iloc[-1]))
                 except Exception:
                     pass
-            if closes:
+            if len(closes) == len(all_syms):
                 break
         except Exception as e:
             print(f"[MarketData] overnight download retry {attempt+1}: {e}")
