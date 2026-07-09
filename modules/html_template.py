@@ -126,7 +126,7 @@ def render_news_item(art, idx):
 def render_news_section(articles, empty="No news available.", synthesis=""):
     if not articles:
         return f"<p class='no-data'>{empty}</p>"
-    syn_html = f'<div class="news-synthesis"><span class="syn-tag">SO WHAT</span> {synthesis}</div>' if synthesis else ""
+    syn_html = f'<div class="news-synthesis"><span class="syn-tag">AI · SO WHAT</span> {synthesis}</div>' if synthesis else ""
     html = syn_html + '<div class="news-grid">'
     for i, a in enumerate(articles, 1):
         html += render_news_item(a, i)
@@ -911,7 +911,7 @@ def render_overnight_recap(data):
         return ""
 
     syn = (data.get("recap_synthesis") or "").strip()
-    syn_html = f'<div class="news-synthesis"><span class="syn-tag">SO WHAT</span> {syn}</div>' if syn else ""
+    syn_html = f'<div class="news-synthesis"><span class="syn-tag">AI · SO WHAT</span> {syn}</div>' if syn else ""
     window = ov.get("window_label", "")
     win_html = f'<div class="ovr-window">Overnight window (US close → now): {window}</div>' if window else ""
     cols = "".join(

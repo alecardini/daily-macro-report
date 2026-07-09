@@ -340,10 +340,12 @@ def get_news_synthesis(articles, context="financial markets"):
         return ""
     prompt = (
         f"You are a markets desk analyst. Below are today's top {context} headlines.\n"
-        "Write a 2-sentence 'so what' synthesis: the dominant theme(s) and the implication "
-        "for risk sentiment.\n"
-        "STRICT: use ONLY these headlines, do NOT add facts, numbers or events not present. "
-        "Concise, factual, no preamble.\n\n"
+        "Write a DESCRIPTIVE 2-sentence 'so what' synthesis: the dominant theme(s) and which "
+        "assets/areas they bear on.\n"
+        "STRICT RULES: (1) use ONLY these headlines, do NOT add facts, numbers or events not "
+        "present. (2) DESCRIPTIVE ONLY — do NOT assert causation, do NOT give directional or "
+        "prescriptive calls ('signals risk-off', 'bullish/bearish for', 'reduce risk'), do NOT "
+        "predict. Describe the picture, do not judge it. Concise, no preamble.\n\n"
         f"HEADLINES:\n{headlines}"
     )
     return _gemini_generate(prompt)
@@ -402,11 +404,14 @@ def get_all_syntheses(data):
     if not blocks:
         return {}
     prompt = (
-        "You are a markets desk analyst. For EACH labeled block below, write a 2-sentence "
-        "'so what' synthesis. News blocks: dominant theme(s) + implication for risk sentiment. "
-        "[recap]: DESCRIPTIVE only — what moved and whether the cross-asset picture is coherent or "
-        "mixed; NO risk-on/off verdict, NO trading advice.\n"
-        "STRICT: use ONLY the given items, do NOT add external facts/numbers.\n"
+        "You are a markets desk analyst. For EACH labeled block below, write a DESCRIPTIVE "
+        "2-sentence 'so what' synthesis. News blocks: state the dominant theme(s) and which "
+        "assets/areas they bear on. [recap]: what moved and whether the cross-asset picture is "
+        "coherent or mixed.\n"
+        "STRICT RULES: (1) use ONLY the given items, do NOT add external facts/numbers. "
+        "(2) DESCRIPTIVE ONLY — do NOT assert causation ('X caused/drove Y'), do NOT give "
+        "directional or prescriptive calls ('signals risk-off', 'bullish/bearish for', "
+        "'reduce risk'), do NOT predict future moves. Describe the picture, do not judge it.\n"
         "Return ONLY a JSON object mapping each block label (e.g. \"news\", \"cb_news\", \"recap\") "
         "to its synthesis string. No preamble, no markdown fences.\n\n"
         + "\n\n".join(blocks)
