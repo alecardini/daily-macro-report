@@ -416,6 +416,7 @@ def get_overnight_moves():
 
     groups = {
         "Equity Futures": [("ES=F", "S&P"), ("NQ=F", "Nasdaq"), ("YM=F", "Dow")],
+        "Rates":          [("ZN=F", "10Y")],   # 10Y T-Note future (Globex ~23h) → mostrato in bp di RENDIMENTO
         "FX":             [("USDJPY=X", "USD/JPY"), ("EURUSD=X", "EUR/USD"),
                            ("GBPUSD=X", "GBP/USD"), ("USDCNY=X", "USD/CNY")],
         "Commodities":    [("GC=F", "Gold"), ("CL=F", "WTI")],
@@ -455,18 +456,30 @@ def get_overnight_moves():
         return {"name": short, "pct_fmt": f"{pct:+.2f}%",
                 "direction": "up" if pct > 0 else "down" if pct < 0 else "neutral"}
 
+    # Il future ZN si muove INVERSO al rendimento: converto il % di prezzo in bp di yield.
+    # %ΔPrice ≈ -Dmod × Δy  →  Δy(bp) ≈ -%ΔPrice × 100 / Dmod. Dmod ≈ 6.3 (on-the-run 10Y).
+    _TSY_DUR = 6.3
+    def _rate_item(short, then, cur):
+        price_pct = (cur - then) / then * 100
+        bp = -price_pct * 100 / _TSY_DUR
+        bp_r = round(bp)
+        fmt = "0 bp" if bp_r == 0 else f"{bp_r:+d} bp"   # evita il brutto "-0 bp"
+        return {"name": short, "pct_fmt": fmt,
+                "direction": "up" if bp_r > 0 else "down" if bp_r < 0 else "neutral"}
+
     result = {"window_label": window_label}
     for label, syms in groups.items():
+        maker = _rate_item if label == "Rates" else _item
         items = []
         for sym, short in syms:
             if sym in closes and closes[sym][0]:
-                items.append(_item(short, *closes[sym]))
+                items.append(maker(short, *closes[sym]))
         result[label] = items
 
     # Crypto via Binance klines (stessa finestra)
     crypto_items = []
     start_ms = int(ws_utc.timestamp() * 1000)
-    for pair, short in [("BTCUSDT", "BTC"), ("ETHUSDT", "ETH")]:
+    for pair, short in [("BTCUSDT", "BTC"), ("ETHUSDT", "ETH"), ("SOLUSDT", "SOL")]:
         try:
             k = requests.get("https://api.binance.com/api/v3/klines",
                              params={"symbol": pair, "interval": "1h",

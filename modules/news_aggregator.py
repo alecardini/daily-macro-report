@@ -357,7 +357,7 @@ def get_recap_synthesis(data):
     """
     ov = data.get("overnight", {}) or {}
     lines = []
-    for label in ["Equity Futures", "FX", "Commodities", "Crypto"]:
+    for label in ["Equity Futures", "Rates", "FX", "Commodities", "Crypto"]:
         for it in ov.get(label, []):
             lines.append(f"{label} — {it['name']}: {it['pct_fmt']}")
     moves = "\n".join(lines)
@@ -395,7 +395,7 @@ def get_all_syntheses(data):
             blocks.append(f"[{key}] ({ctx} headlines):\n{hs}")
     ov = data.get("overnight", {}) or {}
     mlines = [f"{lab} — {it['name']}: {it['pct_fmt']}"
-              for lab in ["Equity Futures", "FX", "Commodities", "Crypto"]
+              for lab in ["Equity Futures", "Rates", "FX", "Commodities", "Crypto"]
               for it in ov.get(lab, [])]
     if mlines:
         blocks.append("[recap] (overnight cross-asset moves since prior US close):\n" + "\n".join(mlines))

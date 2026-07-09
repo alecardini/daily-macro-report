@@ -902,7 +902,7 @@ def render_overnight_recap(data):
         return f'<span class="ovr-chip"><span class="ovr-lbl">{label}</span><span class="ovr-val {cc(dr)}">{arrow(dr)} {change}</span></span>'
 
     groups = []
-    for label in ["Equity Futures", "FX", "Commodities", "Crypto"]:
+    for label in ["Equity Futures", "Rates", "FX", "Commodities", "Crypto"]:
         chips = [chip(it["name"], it["pct_fmt"], it["direction"]) for it in ov.get(label, [])]
         if chips:
             groups.append((label, chips))
