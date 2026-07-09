@@ -304,8 +304,6 @@ def _gemini_generate(prompt, max_tokens=220):
     key = getattr(config, "GEMINI_API_KEY", "")
     if not key or key.startswith("YOUR_"):
         return ""
-    model = getattr(config, "GEMINI_MODEL", "gemini-2.5-flash")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -314,31 +312,38 @@ def _gemini_generate(prompt, max_tokens=220):
             "thinkingConfig": {"thinkingBudget": 0},
         },
     }
-    # Get_all_syntheses fa TUTTE le sintesi in 1 richiesta (free tier ~20/giorno = 1 run
-    # usa ~1/20). Retry SOLO sugli errori transitori del server (503/500/502 overload) e
-    # timeout/network — NON sul 429 (quota esaurita, inutile insistere) né sugli altri 4xx.
+    # CATENA di modelli (resilienza). Su ogni modello: 1 retry sui transitori (503/5xx/timeout)
+    # per superare uno spike breve; su 429 (quota di QUEL modello) o dopo il retry → passo al
+    # modello successivo (quota separata). Ritorno "" solo se falliscono TUTTI.
     _TRANSIENT = {500, 502, 503, 504}
-    backoffs = [2, 5]   # 3 tentativi totali
-    for attempt in range(len(backoffs) + 1):
-        try:
-            r = requests.post(url, json=body, timeout=25)
-            if r.status_code == 200:
-                cand = r.json().get("candidates", [{}])[0]
-                return "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", [])).strip()
-            if r.status_code in _TRANSIENT and attempt < len(backoffs):
-                print(f"[News] Gemini {r.status_code} (transient) — retry {attempt+1}/{len(backoffs)}")
-                time.sleep(backoffs[attempt])
-                continue
-            # 429 (quota) o altri 4xx, oppure transitorio dopo l'ultimo tentativo → mollo
-            print(f"[News] Gemini {r.status_code} — fallback (nessuna sintesi)")
-            return ""
-        except Exception as e:
-            if attempt < len(backoffs):
-                print(f"[News] Gemini error ({e}) — retry {attempt+1}/{len(backoffs)}")
-                time.sleep(backoffs[attempt])
-                continue
-            print(f"[News] Gemini error: {e}")
-            return ""
+    models = [getattr(config, "GEMINI_MODEL", "gemini-2.5-flash")] + \
+             list(getattr(config, "GEMINI_MODEL_FALLBACKS", []))
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+        for attempt in range(2):   # 2 tentativi per modello (1 retry sui transitori)
+            try:
+                r = requests.post(url, json=body, timeout=25)
+                if r.status_code == 200:
+                    cand = r.json().get("candidates", [{}])[0]
+                    txt = "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", [])).strip()
+                    if model != models[0]:
+                        print(f"[News] Gemini OK via fallback model '{model}'")
+                    return txt
+                if r.status_code in _TRANSIENT and attempt == 0:
+                    print(f"[News] Gemini {r.status_code} on '{model}' (transient) — retry")
+                    time.sleep(3)
+                    continue
+                # 429 (quota) / altri 4xx / transitorio persistente → prossimo modello
+                print(f"[News] Gemini {r.status_code} on '{model}' — trying next model")
+                break
+            except Exception as e:
+                if attempt == 0:
+                    print(f"[News] Gemini error on '{model}' ({e}) — retry")
+                    time.sleep(3)
+                    continue
+                print(f"[News] Gemini error on '{model}' ({e}) — trying next model")
+                break
+    print("[News] Gemini — all models failed, fallback (nessuna sintesi)")
     return ""
 
 

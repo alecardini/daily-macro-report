@@ -36,6 +36,11 @@ COINALYZE_API_KEY = "1434edfb-bf93-4be7-a5cc-cdea8ddc385d"
 # Usata per generare 2 righe di sintesi in cima alle sezioni news. Fallback: nessuna sintesi.
 GEMINI_API_KEY = "AQ.Ab8RN6KelteYcAbvQV0z6t7dSqFpZxEkwT0EGc-_ihwalfvUcQ"
 GEMINI_MODEL   = "gemini-3.5-flash"   # il modello free PIÙ capace con budget sulla key (i 3.x/2.5 -pro hanno RPD 0). Con chiamata singola (1/run) sta nei limiti.
+# Catena di fallback modello (per RESILIENZA): se il primario dà 503/5xx (sovraccarico
+# Google) o 429 (quota di QUEL modello), _gemini_generate passa al successivo. Ognuno ha
+# quota separata. Ordine = capacità → disponibilità. L'ultimo (flash-lite) ha 500 RPD/gg
+# → backstop quasi sempre up. Id verificati via ListModels API (09/07/2026).
+GEMINI_MODEL_FALLBACKS = ["gemini-2.5-flash", "gemini-3.1-flash-lite"]
 
 # =============================================================================
 # IMPOSTAZIONI REPORT
