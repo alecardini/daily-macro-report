@@ -413,7 +413,7 @@ def render_crypto(crypto_data, analyses=None):
 # INDICI USA + FUTURES + TREASURY
 # ─────────────────────────────────────────────────────────────
 
-def render_indices(indices, futures, yields, analysis_text=""):
+def render_indices(indices, futures, yields, analysis_text="", rate_exp=None):
     analysis_html = f'<div class="analysis-box"><p>{analysis_text}</p></div>' if analysis_text else ""
 
     def asset_card(data, show_label=None):
@@ -507,6 +507,43 @@ def render_indices(indices, futures, yields, analysis_text=""):
         </div>
     </div>"""
 
+    # ── Rate Expectations (Atlanta Fed MPT primary / ZQ fallback) ──
+    rate_exp_html = ""
+    if rate_exp and rate_exp.get("windows"):
+        cards = ""
+        for w in rate_exp["windows"]:
+            if w.get("hike") is not None:
+                dist = f'Hold {w["hold"]}% · Hike {w["hike"]}% · Cut {w["cut"]}%'
+            else:
+                dist = "implied avg policy rate"
+            mode = f'mode {w["mode_fmt"]} ({w["mode_prob"]}%)' if w.get("mode_fmt") else ""
+            cards += f"""
+            <div class="yield-card">
+                <div class="yield-cat">{w['label']}</div>
+                <div class="yield-val neutral">{w['mean_fmt']}</div>
+                <div class="yield-note">{dist}</div>
+                <div class="yield-change">{mode}</div>
+            </div>"""
+        is_zq = "ZQ" in rate_exp.get("source", "")
+        if is_zq:
+            note = ("<strong>How to read:</strong> Implied average policy rate from 30-day "
+                    "Fed Funds futures (100 − price). <em>Fallback source</em> — the primary "
+                    "Atlanta Fed distribution was unavailable this run.")
+        else:
+            note = ("<strong>How to read:</strong> Market-implied distribution of the 3-month "
+                    "average SOFR from CME options (Atlanta Fed). Hold/Hike/Cut = probability the "
+                    "rate stays in / above / below the current target range by that quarterly "
+                    "window; mean = probability-weighted expected rate; mode = single most-likely "
+                    "range. Watch how it shifts over time vs what was priced, not just the level. "
+                    "Quarterly windows, not per-meeting.")
+        rate_exp_html = f"""
+    <div class="subsection">
+        <h3 class="subsection-title">Rate Expectations — market-implied</h3>
+        <div class="ovr-window">{rate_exp.get('source','')} · as of {rate_exp.get('as_of','')} · current target {rate_exp.get('current_range','')}</div>
+        <div class="yields-grid">{cards}</div>
+        <div class="pc-note" style="margin-top:10px">{note}</div>
+    </div>"""
+
     return f"""
     {analysis_html}
     <div class="subsection">
@@ -521,7 +558,8 @@ def render_indices(indices, futures, yields, analysis_text=""):
         <h3 class="subsection-title">Treasury Yields (US) — FRED / Federal Reserve</h3>
         {yld_html}
     </div>
-    {signals_html}"""
+    {signals_html}
+    {rate_exp_html}"""
 
 
 # ─────────────────────────────────────────────────────────────
@@ -956,7 +994,7 @@ def generate_html(data):
     cot_html       = _safe(render_cot_positioning, data.get("cot"))
     crypto_html   = _safe(render_crypto, data.get("crypto", {}), analyses.get("crypto",{}))
     stablecoin_html = _safe(render_stablecoin_liquidity, data.get("stablecoin", {}))
-    indices_html  = _safe(render_indices, data.get("indices",{}), data.get("futures",{}), data.get("yields",{}), analyses.get("indices",""))
+    indices_html  = _safe(render_indices, data.get("indices",{}), data.get("futures",{}), data.get("yields",{}), analyses.get("indices",""), data.get("rate_expectations"))
     asia_html     = _safe(render_asia, data.get("asia", {}))
     assets_html   = _safe(render_other_assets, data.get("other_assets",{}), data.get("gold_etf",{}), analyses.get("assets",{}), data.get("fx",{}))
     oil_news_html = _safe(render_news_section, data.get("oil_news", []), "No Oil & Energy news available.", synthesis=_syn.get("oil_news",""))

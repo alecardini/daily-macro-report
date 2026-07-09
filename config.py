@@ -318,3 +318,10 @@ CALENDAR_IMPACT_MED = [
     ("Final Services PMI",         "EUR"),   # Eurozone Final Services PMI → medio
     ("Final Services PMI",         "GBP"),   # UK Final Services PMI → medio
 ]
+
+# =============================================================================
+# RATE EXPECTATIONS — Atlanta Fed Market Probability Tracker (primaria) + ZQ (fallback)
+# MPT = distribuzione probabilità del SOFR medio 3M implicita nelle opzioni CME,
+# calcolata dalla Fed di Atlanta. File storico xlsx ufficiale, aggiornato ~giornalmente.
+# =============================================================================
+ATLANTA_FED_MPT_URL = "https://www.atlantafed.org/-/media/Project/Atlanta/FRBA/Documents/cenfis/market-probability-tracker/mpt_histdata.xlsx"

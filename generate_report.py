@@ -59,7 +59,8 @@ def main():
     from modules.news_aggregator import get_general_news, get_central_bank_news, get_ai_robotics_news, get_oil_news, get_crypto_news
     from modules.market_data import (
         get_us_indices, get_futures, get_treasury_yields,
-        get_other_assets, get_gold_etf_data, get_all_sentiment, get_sector_rotation, get_fx_majors, get_overnight_moves
+        get_other_assets, get_gold_etf_data, get_all_sentiment, get_sector_rotation, get_fx_majors, get_overnight_moves,
+        get_rate_expectations
     )
     from modules.crypto_data import get_all_crypto_data, get_stablecoin_liquidity
     from modules.extras import get_pc_ratios, get_earnings_this_week, get_asia_session, get_combined_crypto_fg
@@ -106,6 +107,7 @@ def main():
     data["indices"]      = fetch("Indici USA + VIX", get_us_indices) or {}
     data["futures"]      = fetch("Futures Pre-Market", get_futures) or {}
     data["yields"]       = fetch("Treasury Yields", get_treasury_yields) or {}
+    data["rate_expectations"] = fetch("Rate Expectations (Atlanta Fed MPT)", get_rate_expectations)
     data["other_assets"] = fetch("DXY / Gold / Silver / Copper", get_other_assets) or {}
     data["fx"]           = fetch("FX Majors", get_fx_majors) or {}
     data["gold_etf"]     = fetch("Gold ETF (GLD/IAU)", get_gold_etf_data) or {}

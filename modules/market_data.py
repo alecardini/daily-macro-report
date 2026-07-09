@@ -874,3 +874,144 @@ def get_all_sentiment():
         "equity_fg": get_cnn_fear_greed(),
         "aaii": get_aaii_sentiment(),
     }
+
+
+# ─────────────────────────────────────────────────────────────
+# RATE EXPECTATIONS — Atlanta Fed MPT (primary) + Fed Funds futures ZQ (fallback)
+# ─────────────────────────────────────────────────────────────
+
+_MPT_XLSX_CACHE   = "/tmp/mpt_histdata.xlsx"
+_MPT_PARSED_CACHE = "/tmp/mpt_parsed_cache.json"
+_MPT_TTL          = 12 * 3600          # 12h: dato giornaliero
+_MPT_STALE_MAX    = 7 * 24 * 3600      # oltre 7gg la cache è troppo vecchia
+
+
+def _fmt_range_bps(s):
+    """'375bps - 400bps' → '3.75–4.00%'."""
+    m = re.match(r"(\d+)\s*bps\s*-\s*(\d+)\s*bps", str(s).strip())
+    if not m:
+        return str(s)
+    return f"{int(m.group(1))/100:.2f}–{int(m.group(2))/100:.2f}%"
+
+
+def _mpt_fetch_parse(n_windows):
+    """Scarica e parsa l'xlsx ufficiale Atlanta Fed. Ritorna dict o solleva."""
+    import pandas as pd
+    r = requests.get(config.ATLANTA_FED_MPT_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=40)
+    r.raise_for_status()
+    with open(_MPT_XLSX_CACHE, "wb") as f:
+        f.write(r.content)
+    df = pd.read_excel(_MPT_XLSX_CACHE, sheet_name="DATA")
+    df["date"] = pd.to_datetime(df["date"])
+    last = df["date"].max()
+    d = df[df["date"] == last]
+
+    # target range corrente = l'unico ampio 25bp (ignora eventuali range 0-width)
+    cur_fmt = "n/a"
+    for tr in d["target_range"].dropna().unique():
+        m = re.match(r"(\d+)\s*bps\s*-\s*(\d+)\s*bps", str(tr))
+        if m and int(m.group(2)) - int(m.group(1)) == 25:
+            cur_fmt = f"{int(m.group(1))/100:.2f}–{int(m.group(2))/100:.2f}%"
+            break
+
+    windows = []
+    for rs in sorted(d["reference_start"].unique())[:n_windows]:
+        w = d[d["reference_start"] == rs]
+
+        def g(field):
+            v = w[w["field"] == field]["value"]
+            return float(v.iloc[0]) if len(v) else None
+
+        hike, cut, mean = g("Prob: hike"), g("Prob: cut"), g("Rate: mean")
+        if hike is None or cut is None:
+            continue
+        hold = max(0.0, 100.0 - hike - cut)           # hold = resta nel range corrente
+        # range modale (picco della distribuzione)
+        rp = w[w["field"].str.startswith("Prob: ") & w["field"].str.contains("bps")].copy()
+        mode_fmt, mode_prob = None, None
+        if len(rp):
+            rp["value"] = rp["value"].astype(float)
+            top = rp.sort_values("value", ascending=False).iloc[0]
+            mode_fmt = _fmt_range_bps(str(top["field"]).replace("Prob: ", ""))
+            mode_prob = round(float(top["value"]))
+        windows.append({
+            "label":    pd.to_datetime(rs).strftime("%b %Y"),
+            "mean_fmt": f"{mean/100:.2f}%" if mean else "—",
+            "hold": round(hold), "hike": round(hike), "cut": round(cut),
+            "mode_fmt": mode_fmt, "mode_prob": mode_prob,
+        })
+    if not windows:
+        raise ValueError("MPT: nessuna finestra parsata")
+    return {"as_of": last.strftime("%d %b"), "current_range": cur_fmt,
+            "windows": windows, "source": "Atlanta Fed MPT"}
+
+
+def _rate_expectations_zq(n_windows):
+    """Fallback: tasso medio implicito dai futures Fed Funds (ZQ) per i prossimi
+    mesi trimestrali. Solo 'mean' (niente distribuzione hold/hike/cut)."""
+    codes = {1:"F",2:"G",3:"H",4:"J",5:"K",6:"M",7:"N",8:"Q",9:"U",10:"V",11:"X",12:"Z"}
+    now = datetime.now(ROME_TZ)
+    seq, yy = [], now.year
+    while len(seq) < n_windows:
+        for qm in (3, 6, 9, 12):
+            if (yy > now.year or qm >= now.month) and len(seq) < n_windows + 2:
+                seq.append((yy, qm))
+        yy += 1
+    windows = []
+    for yr, mo in seq[:n_windows]:
+        sym = f"ZQ{codes[mo]}{str(yr)[2:]}.CBT"
+        try:
+            lp = getattr(yf.Ticker(sym).fast_info, "last_price", None)
+            if not lp:
+                continue
+            windows.append({"label": datetime(yr, mo, 1).strftime("%b %Y"),
+                            "mean_fmt": f"{100 - float(lp):.2f}%",
+                            "hold": None, "hike": None, "cut": None,
+                            "mode_fmt": None, "mode_prob": None})
+        except Exception:
+            continue
+    if not windows:
+        return None
+    try:
+        u, _, _ = _fred_latest("DFEDTARU")
+        l, _, _ = _fred_latest("DFEDTARL")
+        cur_fmt = f"{l:.2f}–{u:.2f}%" if (u and l) else "n/a"
+    except Exception:
+        cur_fmt = "n/a"
+    return {"as_of": now.strftime("%d %b"), "current_range": cur_fmt,
+            "windows": windows, "source": "Fed Funds futures (ZQ)"}
+
+
+def get_rate_expectations(n_windows=3):
+    """Aspettative di policy market-implied. Primario Atlanta Fed MPT (cache 12h,
+    stale ≤7gg), fallback futures ZQ, poi None → render mostra 'data not available'."""
+    print("[MarketData] Fetching rate expectations (Atlanta Fed MPT)...")
+    # 1) parsed cache fresca
+    try:
+        if os.path.exists(_MPT_PARSED_CACHE):
+            c = json.load(open(_MPT_PARSED_CACHE))
+            if time.time() - c.get("cached_at", 0) < _MPT_TTL and c.get("data", {}).get("windows"):
+                return c["data"]
+    except Exception:
+        pass
+    # 2) fetch fresco
+    try:
+        data = _mpt_fetch_parse(n_windows)
+        json.dump({"cached_at": time.time(), "data": data}, open(_MPT_PARSED_CACHE, "w"))
+        return data
+    except Exception as e:
+        print(f"[MarketData] MPT fetch/parse failed ({e}); trying stale cache / ZQ fallback")
+    # 3) stale cache ≤7gg
+    try:
+        if os.path.exists(_MPT_PARSED_CACHE):
+            c = json.load(open(_MPT_PARSED_CACHE))
+            if time.time() - c.get("cached_at", 0) < _MPT_STALE_MAX and c.get("data", {}).get("windows"):
+                return c["data"]
+    except Exception:
+        pass
+    # 4) fallback ZQ
+    try:
+        return _rate_expectations_zq(n_windows)
+    except Exception as e:
+        print(f"[MarketData] ZQ fallback failed: {e}")
+        return None
