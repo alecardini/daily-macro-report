@@ -523,7 +523,7 @@ def _get_coinalyze_derivatives():
     for chunk in _cz_chunks(all_syms):
         data = _cz_get("/open-interest-history", symbols=",".join(chunk), interval="daily",
                        **{"from": now - 3 * 24 * 3600, "to": now, "convert_to_usd": "true"})
-        time.sleep(1.5)
+        time.sleep(3)   # spaziatura per stare sotto il rate-limit Coinalyze (40/min)
         if isinstance(data, list):
             for item in data:
                 b = sym2base.get(item.get("symbol")); hist = item.get("history", [])
@@ -535,26 +535,46 @@ def _get_coinalyze_derivatives():
     # Funding rate corrente
     for chunk in _cz_chunks(all_syms):
         data = _cz_get("/funding-rate", symbols=",".join(chunk))
-        time.sleep(1.5)
+        time.sleep(3)
         if isinstance(data, list):
             for item in data:
                 b = sym2base.get(item.get("symbol")); v = item.get("value")
                 if b and v is not None:
                     agg[b]["fr"].append(float(v)); agg[b]["has_fr"] = True
 
-    # Liquidazioni 24h
+    # Liquidazioni 24h — interval ORARIO (non daily): il candle daily è etichettato a
+    # mezzanotte UTC, quello del giorno prima cade fuori dal 'from' e viene scartato →
+    # sommavamo solo il giorno UTC corrente parziale ("da mezzanotte a ora"), non 24h reali.
+    # Con candle orari sommiamo la vera finestra rolling 24h (stabile, BTC il più alto).
+    liq_params = {"from": now - 24 * 3600, "to": now, "convert_to_usd": "true"}
+
+    def _accumulate_liq(data):
+        """True se il chunk ha risposto (lista, anche vuota); False se None (429/errore)."""
+        if not isinstance(data, list):
+            return False
+        for item in data:
+            b = sym2base.get(item.get("symbol"))
+            if b:
+                for h in item.get("history", []):
+                    agg[b]["long"]  += h.get("l", 0) or 0
+                    agg[b]["short"] += h.get("s", 0) or 0
+                    agg[b]["has_liq"] = True
+        return True
+
+    failed_chunks = []
     for chunk in _cz_chunks(all_syms):
-        data = _cz_get("/liquidation-history", symbols=",".join(chunk), interval="daily",
-                       **{"from": now - 24 * 3600, "to": now, "convert_to_usd": "true"})
-        time.sleep(1.5)
-        if isinstance(data, list):
-            for item in data:
-                b = sym2base.get(item.get("symbol"))
-                if b:
-                    for h in item.get("history", []):
-                        agg[b]["long"]  += h.get("l", 0) or 0
-                        agg[b]["short"] += h.get("s", 0) or 0
-                        agg[b]["has_liq"] = True
+        data = _cz_get("/liquidation-history", symbols=",".join(chunk), interval="1hour", **liq_params)
+        if not _accumulate_liq(data):
+            failed_chunks.append(chunk)
+        time.sleep(3)
+    # Retry pass: i chunk falliti (429 transitori) si ri-tentano dopo una pausa più lunga,
+    # per lasciar rientrare il rate-window Coinalyze → nessun asset azzerato da un 429.
+    if failed_chunks:
+        time.sleep(8)
+        for chunk in failed_chunks:
+            data = _cz_get("/liquidation-history", symbols=",".join(chunk), interval="1hour", **liq_params)
+            _accumulate_liq(data)
+            time.sleep(3)
 
     out = {}
     for b, a in agg.items():
