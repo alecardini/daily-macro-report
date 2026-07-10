@@ -984,6 +984,16 @@ def generate_html(data):
     vix_data = data.get("indices", {}).get("VIX", {})
 
     _syn          = data.get("synthesis", {}) or {}
+    # Banner data-quality: compare SOLO se ci sono valori sospetti (non invasivo)
+    _dq = data.get("data_quality") or []
+    if _dq:
+        _dq_items = "".join(f"<li>{w}</li>" for w in _dq)
+        dq_banner = (f'<div class="dq-banner"><span class="dq-tag">⚠ DATA QUALITY</span>'
+                     f'{len(_dq)} value(s) look suspect this run — verify before trading:'
+                     f'<ul class="dq-list">{_dq_items}</ul></div>')
+    else:
+        dq_banner = ""
+
     overnight_html = _safe(render_overnight_recap, data)
     earnings_html = _safe(render_earnings, data.get("earnings", {}))
     cal_html      = _safe(render_calendar, data.get("calendar", {}))
@@ -1164,6 +1174,9 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .fi-note{{font-size:9px;color:var(--text3);margin-bottom:5px;font-style:italic}}
 .etf-links{{margin-top:8px;font-size:9px;color:var(--text3)}}
 .etf-links a{{color:var(--acc);text-decoration:none}}.etf-links a:hover{{text-decoration:underline}}
+.dq-banner{{max-width:1400px;margin:14px auto 0;padding:10px 16px;background:rgba(240,110,60,0.10);border:1px solid rgba(240,110,60,0.45);border-radius:8px;font-size:12px;color:var(--text2);line-height:1.5}}
+.dq-tag{{display:inline-block;background:#f06e3c;color:#000;font-size:9px;font-weight:700;letter-spacing:1px;padding:2px 8px;border-radius:8px;margin-right:8px;vertical-align:middle}}
+.dq-list{{margin:6px 0 0 18px;padding:0}}.dq-list li{{margin:2px 0;color:var(--text3)}}
 
 /* OTHER ASSETS (row cards) */
 .asset-row-card{{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px;display:flex;gap:20px;align-items:flex-start}}
@@ -1273,6 +1286,8 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
     <div class="gen-time">Generated at {now_rome.strftime('%H:%M')}</div>
   </div>
 </div>
+
+{dq_banner}
 
 <div class="container">
 

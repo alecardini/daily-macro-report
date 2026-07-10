@@ -158,6 +158,18 @@ def main():
     data["synthesis"] = {k: _all_syn.get(k, "") for k in ("news", "cb_news", "crypto_news", "oil_news", "ai_news")}
     data["recap_synthesis"] = _all_syn.get("recap", "")
 
+    # ── Data-quality / plausibility layer (dopo i fetch, prima del render) ──
+    from modules.sanity import check_data_quality, load_snapshot, save_snapshot
+    _dq_warnings, _dq_snap = check_data_quality(data, load_snapshot())
+    save_snapshot(_dq_snap)
+    data["data_quality"] = _dq_warnings
+    if _dq_warnings:
+        print(f"\n⚠  DATA QUALITY — {len(_dq_warnings)} suspect value(s):")
+        for _w in _dq_warnings:
+            print(f"   ⚠ {_w}")
+    else:
+        print("\n✓ Data quality: no suspect values")
+
     # ── Micro Analisi ──
     print("\nGenerating analysis...")
     prices  = data["crypto"].get("prices", {})
