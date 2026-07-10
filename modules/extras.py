@@ -239,6 +239,7 @@ _STATIC_KEY_STOCKS = {
 _CRYPTO_PROXIES = {
     "COIN": "Coinbase", "MSTR": "MicroStrategy", "MARA": "MARA Holdings",
     "RIOT": "Riot Platforms", "CLSK": "CleanSpark", "HUT": "Hut 8",
+    "CRCL": "Circle",   # emittente USDC
 }
 
 # Set per categorizzare gli earnings per RILEVANZA (tag colorato). Non esaustivi: i nomi
