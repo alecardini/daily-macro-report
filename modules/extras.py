@@ -261,91 +261,145 @@ def _earnings_category(sym):
         return "bank", "BANK"
     return "other", ""
 
-_TICKER_LIST_CACHE = "/tmp/earnings_ticker_universe_cache.json"
-_TICKER_LIST_TTL   = 90 * 24 * 3600  # 90 giorni (~3 mesi) — rebuild costoso (~500 yfinance calls), va fatto raramente
+_TICKER_LIST_CACHE      = "/tmp/earnings_ticker_universe_cache.json"
+_TICKER_LIST_TTL        = 90 * 24 * 3600   # build sano → 90 giorni
+_TICKER_LIST_TTL_DEGRADED = 24 * 3600      # build degradato → ritenta domani (auto-heal)
+_UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+
+# Avvisi sulla costruzione dell'universo (esposti al report → banner data-quality)
+UNIVERSE_WARNINGS = []
+
+
+def _slickcharts_table(path):
+    """Costituenti indice da Slickcharts (sito live, auto-aggiornato). DataFrame o None."""
+    import pandas as pd, io
+    try:
+        r = requests.get(f"https://www.slickcharts.com/{path}", headers=_UA, timeout=20)
+        r.raise_for_status()
+        t = pd.read_html(io.StringIO(r.text))[0]
+        return t if "Symbol" in [str(c) for c in t.columns] else None
+    except Exception as e:
+        print(f"[Extras] Slickcharts /{path} error: {e}")
+        return None
 
 
 def _fetch_nasdaq100():
-    """Scrape Nasdaq-100 constituents from Wikipedia."""
-    import pandas as pd, io
-    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
-    r = requests.get("https://en.wikipedia.org/wiki/Nasdaq-100", headers=headers, timeout=20)
-    tables = pd.read_html(io.StringIO(r.text))
-    for t in tables:
-        cols = [str(c) for c in t.columns]
-        if "Ticker" in cols and "Company" in cols:
-            return {row["Ticker"].replace(".", "-"): row["Company"] for _, row in t.iterrows()}
+    """Nasdaq-100 constituents. Primario Slickcharts (live), fallback Wikipedia."""
+    t = _slickcharts_table("nasdaq100")
+    if t is not None and len(t) >= 90:
+        return {str(row["Symbol"]).replace(".", "-"): str(row["Company"]) for _, row in t.iterrows()}
+    # fallback Wikipedia (la pagina ha cambiato formato nel 2026 → spesso vuoto, ma tentiamo)
+    try:
+        import pandas as pd, io
+        r = requests.get("https://en.wikipedia.org/wiki/Nasdaq-100", headers=_UA, timeout=20)
+        for tab in pd.read_html(io.StringIO(r.text)):
+            cols = [str(c) for c in tab.columns]
+            if ("Ticker" in cols or "Symbol" in cols) and "Company" in cols:
+                key = "Ticker" if "Ticker" in cols else "Symbol"
+                return {str(row[key]).replace(".", "-"): str(row["Company"]) for _, row in tab.iterrows()}
+    except Exception as e:
+        print(f"[Extras] Nasdaq-100 Wikipedia fallback error: {e}")
     return {}
 
 
 def _fetch_sp500_top100_by_marketcap():
-    """Scrape all S&P 500 tickers from Wikipedia, fetch market cap via yfinance, return top 100."""
-    import pandas as pd, io
-    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
-    r = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", headers=headers, timeout=20)
-    tables = pd.read_html(io.StringIO(r.text))
-    sp500_df = tables[0]
-    pairs = [(row["Symbol"].replace(".", "-"), row["Security"]) for _, row in sp500_df.iterrows()]
-
-    ranked = []
-    for sym, name in pairs:
+    """S&P top 100. Primario Slickcharts per weight (no yfinance), fallback Wikipedia + yfinance."""
+    t = _slickcharts_table("sp500")
+    if t is not None and len(t) >= 400 and "Weight" in [str(c) for c in t.columns]:
         try:
-            mc = yf.Ticker(sym).fast_info.get("marketCap")
-            if mc:
-                ranked.append((sym, name, mc))
-        except Exception:
-            continue
-
-    ranked.sort(key=lambda x: x[2], reverse=True)
-    return {sym: name for sym, name, _ in ranked[:100]}
+            t = t.copy()
+            t["_w"] = t["Weight"].astype(str).str.replace("%", "", regex=False).astype(float)
+            t = t.sort_values("_w", ascending=False).head(100)
+            return {str(row["Symbol"]).replace(".", "-"): str(row["Company"]) for _, row in t.iterrows()}
+        except Exception as e:
+            print(f"[Extras] Slickcharts sp500 parse error: {e}")
+    # fallback: Wikipedia + ranking market-cap via yfinance (lento ~8-10 min, ma robusto)
+    try:
+        import pandas as pd, io
+        r = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", headers=_UA, timeout=20)
+        sp500_df = pd.read_html(io.StringIO(r.text))[0]
+        pairs = [(str(row["Symbol"]).replace(".", "-"), row["Security"]) for _, row in sp500_df.iterrows()]
+        ranked = []
+        for sym, name in pairs:
+            try:
+                mc = yf.Ticker(sym).fast_info.get("marketCap")
+                if mc:
+                    ranked.append((sym, name, mc))
+            except Exception:
+                continue
+        ranked.sort(key=lambda x: x[2], reverse=True)
+        return {sym: name for sym, name, _ in ranked[:100]}
+    except Exception as e:
+        print(f"[Extras] S&P 500 Wikipedia fallback error: {e}")
+        return {}
 
 
 def _load_ticker_universe_cache():
+    """Ritorna (data, warnings) se cache valida (TTL dipende da _ttl salvato), altrimenti None."""
     try:
         with open(_TICKER_LIST_CACHE) as f:
-            cached = json.load(f)
-        age = time.time() - cached.get("_ts", 0)
-        if age < _TICKER_LIST_TTL:
-            return cached.get("data")
+            c = json.load(f)
+        ttl = c.get("_ttl", _TICKER_LIST_TTL)
+        if time.time() - c.get("_ts", 0) < ttl and c.get("data"):
+            return c.get("data"), c.get("_warnings", [])
         return None
     except Exception:
         return None
 
 
-def _save_ticker_universe_cache(data):
+def _save_ticker_universe_cache(data, warnings, ttl):
     try:
         with open(_TICKER_LIST_CACHE, "w") as f:
-            json.dump({"_ts": time.time(), "data": data}, f)
+            json.dump({"_ts": time.time(), "_ttl": ttl, "_warnings": warnings, "data": data}, f)
     except Exception:
         pass
 
 
 def _build_earnings_ticker_universe():
     """
-    Build the full earnings tracking universe: NASDAQ-100 + S&P 500 top 100 by market cap.
-    Cached on disk for 30 days — building the S&P 500 ranking requires ~500 yfinance calls (~8 min).
+    Universo earnings = NASDAQ-100 + S&P top 100, da Slickcharts (auto-aggiornato) con
+    fallback Wikipedia. Health-check: se una lista è degradata → cache TTL corto (ritenta
+    domani) + warning esposto in UNIVERSE_WARNINGS (→ banner data-quality del report).
     """
+    global UNIVERSE_WARNINGS
     cached = _load_ticker_universe_cache()
-    if cached:
-        return cached
+    if cached is not None:
+        data, UNIVERSE_WARNINGS = cached[0], cached[1]
+        return data
 
-    print("[Extras] Building earnings ticker universe (Nasdaq-100 + S&P 500 top 100) — one-time, ~8-10 min...")
-    universe = dict(_STATIC_KEY_STOCKS)
+    print("[Extras] Building earnings ticker universe (Slickcharts, live)...")
+    n100, sp = {}, {}
     try:
-        universe.update(_fetch_nasdaq100())
+        n100 = _fetch_nasdaq100()
     except Exception as e:
         print(f"[Extras] Nasdaq-100 fetch error: {e}")
     try:
-        universe.update(_fetch_sp500_top100_by_marketcap())
+        sp = _fetch_sp500_top100_by_marketcap()
     except Exception as e:
-        print(f"[Extras] S&P 500 top 100 fetch error: {e}")
+        print(f"[Extras] S&P top 100 fetch error: {e}")
 
-    if len(universe) > len(_STATIC_KEY_STOCKS):
-        _save_ticker_universe_cache(universe)
-        print(f"[Extras] Earnings ticker universe built: {len(universe)} companies (cached 90 days)")
+    universe = dict(_STATIC_KEY_STOCKS)
+    universe.update(n100)
+    universe.update(sp)
+
+    warnings = []
+    if len(n100) < 90:
+        warnings.append(f"Earnings watchlist: Nasdaq-100 source degraded ({len(n100)} names) — some tech earnings may be missing")
+    if len(sp) < 90:
+        warnings.append(f"Earnings watchlist: S&P top-100 source degraded ({len(sp)} names)")
+    healthy = len(n100) >= 90 and len(sp) >= 90 and len(universe) >= 150
+
+    if len(universe) > len(_STATIC_KEY_STOCKS) + 10:
+        ttl = _TICKER_LIST_TTL if healthy else _TICKER_LIST_TTL_DEGRADED
+        _save_ticker_universe_cache(universe, warnings, ttl)
+        UNIVERSE_WARNINGS = warnings
+        print(f"[Extras] Earnings universe: {len(universe)} names (Nasdaq {len(n100)}, S&P100 {len(sp)}) — "
+              f"{'healthy, cached 90d' if healthy else 'DEGRADED, will retry next run'}")
         return universe
-    print("[Extras] Failed to build ticker universe, falling back to static list")
-    return _STATIC_KEY_STOCKS
+
+    UNIVERSE_WARNINGS = ["Earnings watchlist build FAILED — using minimal static list; earnings coverage limited"]
+    print("[Extras] Universe build failed, using static list")
+    return dict(_STATIC_KEY_STOCKS)
 
 
 KEY_STOCKS = _build_earnings_ticker_universe()

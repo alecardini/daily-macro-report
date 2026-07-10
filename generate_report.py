@@ -160,8 +160,11 @@ def main():
 
     # ── Data-quality / plausibility layer (dopo i fetch, prima del render) ──
     from modules.sanity import check_data_quality, load_snapshot, save_snapshot
+    import modules.extras as _extras
     _dq_warnings, _dq_snap = check_data_quality(data, load_snapshot())
     save_snapshot(_dq_snap)
+    # Prepende gli avvisi sulla costruzione dell'universo earnings (Nasdaq-100/S&P degradati)
+    _dq_warnings = list(getattr(_extras, "UNIVERSE_WARNINGS", [])) + _dq_warnings
     data["data_quality"] = _dq_warnings
     if _dq_warnings:
         print(f"\n⚠  DATA QUALITY — {len(_dq_warnings)} suspect value(s):")
