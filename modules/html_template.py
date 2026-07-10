@@ -798,6 +798,8 @@ def _earnings_row(e, badge=None):
     beat = e.get("beat")
     surp_cls = "positive" if beat is True else "negative" if beat is False else "neutral-c"
     badge_html = f'<span class="earning-badge">{badge}</span>' if badge else ""
+    cat, cat_label = e.get("category", "other"), e.get("cat_label", "")
+    cat_badge = f'<span class="cat-tag cat-{cat}">{cat_label}</span>' if cat_label else ""
 
     release_time  = e.get("release_time", "")
     release_label = e.get("release_label", "")
@@ -815,7 +817,7 @@ def _earnings_row(e, badge=None):
 
     return f"""
     <div class="etable-row">
-        <span class="etcol-sym"><span class="earning-sym">{e['symbol']}</span>{badge_html}</span>
+        <span class="etcol-sym"><span class="earning-sym">{e['symbol']}</span>{badge_html}{cat_badge}</span>
         <span class="etcol-name earning-name">{e['name']}</span>
         <span class="etcol-date earning-date">{e['date_fmt']}</span>
         <span class="etcol-time">{time_cell}</span>
@@ -863,7 +865,13 @@ def render_earnings(earnings_data):
         html += '<div class="earnings-section-label" style="margin-top:18px">📅 Next 7 days</div>'
         html += '<div class="etable">'
         html += _earnings_table_header()
-        for e in upcoming[:10]:
+        # Cap cronologico a 12, MA i crypto-proxy oltre il cap restano comunque (focus utente,
+        # mai tagliati); l'ordine resta cronologico (upcoming è già ordinato per data).
+        _CAP = 12
+        shown = upcoming[:_CAP]
+        if len(upcoming) > _CAP:
+            shown = shown + [e for e in upcoming[_CAP:] if e.get("category") == "crypto"]
+        for e in shown:
             html += _earnings_row(e)
         html += "</div>"
 
@@ -1177,6 +1185,10 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .dq-banner{{max-width:1400px;margin:14px auto 0;padding:10px 16px;background:rgba(240,110,60,0.10);border:1px solid rgba(240,110,60,0.45);border-radius:8px;font-size:12px;color:var(--text2);line-height:1.5}}
 .dq-tag{{display:inline-block;background:#f06e3c;color:#000;font-size:9px;font-weight:700;letter-spacing:1px;padding:2px 8px;border-radius:8px;margin-right:8px;vertical-align:middle}}
 .dq-list{{margin:6px 0 0 18px;padding:0}}.dq-list li{{margin:2px 0;color:var(--text3)}}
+.cat-tag{{font-size:8px;font-weight:700;letter-spacing:.5px;padding:1px 5px;border-radius:6px;margin-left:6px;vertical-align:middle}}
+.cat-crypto{{background:rgba(240,110,60,.18);color:#f0925c}}
+.cat-bigtech{{background:rgba(90,140,240,.20);color:#7ba3f0}}
+.cat-bank{{background:rgba(60,200,140,.16);color:#4fca88}}
 
 /* OTHER ASSETS (row cards) */
 .asset-row-card{{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px;display:flex;gap:20px;align-items:flex-start}}

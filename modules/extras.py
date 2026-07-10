@@ -233,6 +233,33 @@ _STATIC_KEY_STOCKS = {
     "AMD": "AMD", "INTC": "Intel", "NFLX": "Netflix", "MU": "Micron",
 }
 
+# Crypto-proxy: NON sono nel Nasdaq-100 né nell'S&P top 100 (i miner quasi certamente
+# fuori) → vanno tracciati ESPLICITAMENTE altrimenti l'utente non li vede mai. Sono i
+# nomi che muovono il sentiment crypto (focus dell'utente).
+_CRYPTO_PROXIES = {
+    "COIN": "Coinbase", "MSTR": "MicroStrategy", "MARA": "MARA Holdings",
+    "RIOT": "Riot Platforms", "CLSK": "CleanSpark", "HUT": "Hut 8",
+}
+
+# Set per categorizzare gli earnings per RILEVANZA (tag colorato). Non esaustivi: i nomi
+# non elencati ricadono in 'other'. crypto = focus utente; bigtech = risk sentiment; bank = credito.
+_CAT_BIGTECH = {"NVDA", "AAPL", "MSFT", "GOOGL", "GOOG", "META", "AMZN", "TSLA", "AMD",
+                "AVGO", "MU", "INTC", "NFLX", "ADBE", "CRM", "ORCL", "CSCO", "QCOM",
+                "TXN", "AMAT", "ARM", "SMCI", "PLTR"}
+_CAT_BANK = {"JPM", "GS", "BAC", "MS", "WFC", "C", "BLK", "SCHW", "USB", "PNC",
+             "TFC", "COF", "AXP", "BK", "STT"}
+
+
+def _earnings_category(sym):
+    """→ (category, tag_label). Ordine di priorità: crypto > bigtech > bank > other."""
+    if sym in _CRYPTO_PROXIES:
+        return "crypto", "CRYPTO"
+    if sym in _CAT_BIGTECH:
+        return "bigtech", "TECH"
+    if sym in _CAT_BANK:
+        return "bank", "BANK"
+    return "other", ""
+
 _TICKER_LIST_CACHE = "/tmp/earnings_ticker_universe_cache.json"
 _TICKER_LIST_TTL   = 90 * 24 * 3600  # 90 giorni (~3 mesi) — rebuild costoso (~500 yfinance calls), va fatto raramente
 
@@ -321,6 +348,7 @@ def _build_earnings_ticker_universe():
 
 
 KEY_STOCKS = _build_earnings_ticker_universe()
+KEY_STOCKS.update(_CRYPTO_PROXIES)   # garantiti sempre, anche se non nel Nasdaq-100/S&P top 100
 
 
 _EARNINGS_CACHE_PATH = "/tmp/earnings_results_cache.json"
@@ -429,6 +457,7 @@ def get_earnings_this_week():
             if sym not in universe:
                 continue
             name = KEY_STOCKS.get(sym, row.get("name", sym))
+            cat, cat_label = _earnings_category(sym)
             release_label = _TIME_LABEL_MAP.get(row.get("time", ""), "")
             eps_est = _parse_money(row.get("epsForecast"))
 
@@ -447,6 +476,8 @@ def get_earnings_this_week():
                 earnings_yesterday.append({
                     "symbol":        sym,
                     "name":          name,
+                    "category":      cat,
+                    "cat_label":     cat_label,
                     "date_fmt":      d.strftime("%a %d %b"),
                     "release_label": release_label,
                     "eps_actual":    f"${eps_actual:.2f}"    if eps_actual    is not None else "—",
@@ -465,6 +496,8 @@ def get_earnings_this_week():
                 entry = {
                     "symbol":        sym,
                     "name":          name,
+                    "category":      cat,
+                    "cat_label":     cat_label,
                     "date_fmt":      d.strftime("%a %d %b"),
                     "release_time":  "",
                     "release_label": release_label,
