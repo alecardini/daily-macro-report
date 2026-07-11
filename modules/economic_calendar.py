@@ -319,6 +319,57 @@ def _match_impact_override(overrides, title, currency):
     return False
 
 
+# ── ACTUAL da FRED (arricchimento) ──────────────────────────────────────────
+# Il feed FF non fornisce MAI gli 'actual'. Per un piccolo set di indicatori USA che su FRED
+# sono già nel formato del calendario (nessuna conversione), riempiamo la colonna Actual quando
+# l'evento è passato. Gli altri eventi tengono il link "Vedi dato". FF resta la fonte primaria
+# degli eventi: FRED tocca SOLO la cella Actual di questi eventi già mostrati.
+# (title_substr, currency): (fred_series, formatter, min_ore_dopo_evento, max_lag_giorni_obs)
+_FRED_ACTUAL = {
+    ("Federal Funds Rate",  "USD"): ("DFEDTARU", lambda v: f"{v:.2f}%",    3,  6),
+    ("Unemployment Claims", "USD"): ("ICSA",     lambda v: f"{v/1000:.0f}K", 2, 10),
+    ("Unemployment Rate",   "USD"): ("UNRATE",   lambda v: f"{v:.1f}%",    2, 45),
+}
+_FRED_ACTUAL_CACHE = {}
+
+
+def _fred_actual_value(series_id):
+    """(value, obs_date) più recente da FRED, o (None, None). Cache per-processo."""
+    if series_id in _FRED_ACTUAL_CACHE:
+        return _FRED_ACTUAL_CACHE[series_id]
+    out = (None, None)
+    try:
+        key = getattr(config, "FRED_API_KEY", "")
+        if key and not key.startswith("YOUR_"):
+            r = requests.get("https://api.stlouisfed.org/fred/series/observations",
+                             params={"series_id": series_id, "api_key": key, "file_type": "json",
+                                     "sort_order": "desc", "limit": 1}, timeout=12).json()
+            obs = [o for o in r.get("observations", []) if o["value"] not in (".", "")]
+            if obs:
+                out = (float(obs[0]["value"]), datetime.fromisoformat(obs[0]["date"]).date())
+    except Exception as e:
+        print(f"[Calendar] FRED actual error {series_id}: {e}")
+    _FRED_ACTUAL_CACHE[series_id] = out
+    return out
+
+
+def _fred_actual_for(raw_title, currency, event_dt_rome, now_rome):
+    """Se l'evento passato è mappato e FRED ha il valore fresco → stringa actual, altrimenti None.
+    Guardie: min ore dopo l'evento (lascia a FRED il tempo di pubblicare) + obs FRED recente."""
+    for (sub, cur), (series, fmt, min_h, max_lag) in _FRED_ACTUAL.items():
+        if cur == currency and sub.lower() in raw_title.lower():
+            if (now_rome - event_dt_rome).total_seconds() < min_h * 3600:
+                return None
+            val, obs_date = _fred_actual_value(series)
+            if val is not None and obs_date is not None and (now_rome.date() - obs_date).days <= max_lag:
+                try:
+                    return fmt(val)
+                except Exception:
+                    return None
+            return None
+    return None
+
+
 def _parse_ff_json(data, target_dates):
     """Parse Forex Factory JSON into {day_key: [events]} for target_dates."""
     whitelist         = [w.lower() for w in getattr(config, "CALENDAR_WHITELIST", [])]
@@ -409,6 +460,12 @@ def _parse_ff_json(data, target_dates):
 
             raw_title = event.get("title", "—")
             renamed   = _maybe_rename_rate_event(raw_title, currency)
+
+            # Arricchimento actual da FRED (solo set USA mappato); altrimenti resta il link "Vedi dato"
+            if actual_overdue:
+                _fa = _fred_actual_for(raw_title, currency, event_dt_rome, now_rome)
+                if _fa:
+                    actual_raw, actual_overdue = _fa, False
 
             result[day_key].append({
                 "time": event_dt_rome.strftime("%H:%M"),
