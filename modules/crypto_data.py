@@ -244,7 +244,11 @@ def _fetch_farside(url, asset_name):
             result = {
                 "last_date": last_date,
                 "daily_total_m": daily_total,
-                "daily_total_fmt": fmt_large(daily_total * 1e6),
+                # farside dà i flussi in MILIONI arrotondati a 0.1M. Per i flussi <$1M (es. SOL)
+                # mostrare "$200,000" è falsa precisione (in realtà è ~$0.15-0.2M): sotto $1M
+                # mostriamo "$0.2M" (precisione reale della fonte); ≥$1M invariato (BTC/ETH).
+                "daily_total_fmt": (fmt_large(daily_total * 1e6) if abs(daily_total) >= 1
+                                    else f"{'-' if daily_total < 0 else ''}${abs(daily_total):.1f}M"),
                 "daily_total_raw": daily_total * 1e6,
                 "by_etf": by_etf,
                 "cumulative_total_m": cum_total,
