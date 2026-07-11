@@ -407,11 +407,16 @@ def get_overnight_moves():
     """
     print("[MarketData] Fetching overnight cross-asset moves...")
     ROME = pytz.timezone("Europe/Rome")
-    now = datetime.now(ROME)
-    anchor = now.replace(hour=22, minute=0, second=0, microsecond=0)
-    if now < anchor:               # se generato dopo le 22, l'anchor è oggi; altrimenti ieri
-        anchor -= timedelta(days=1)
-    ws_utc = anchor.astimezone(timezone.utc)
+    NY   = pytz.timezone("America/New_York")
+    now  = datetime.now(ROME)
+    # Anchor = ultima chiusura NYSE (16:00 ET) passata, DST-aware. Normalmente = 22:00 Roma,
+    # ma nelle ~2 settimane/anno di disallineamento DST US/EU sarebbe 21:00 o 23:00: ancorare
+    # a 16:00 ET (non a un '22:00 Roma' fisso) tiene la finestra sulla vera chiusura USA.
+    anchor_ny = now.astimezone(NY).replace(hour=16, minute=0, second=0, microsecond=0)
+    if now.astimezone(NY) < anchor_ny:   # prima delle 16:00 ET → la chiusura di riferimento è ieri
+        anchor_ny -= timedelta(days=1)
+    anchor = anchor_ny.astimezone(ROME)
+    ws_utc = anchor_ny.astimezone(timezone.utc)
     window_label = f"{anchor.strftime('%H:%M')} → {now.strftime('%H:%M')} (Rome)"
 
     groups = {
