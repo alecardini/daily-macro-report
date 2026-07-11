@@ -477,6 +477,31 @@ def _enrich_selected(articles):
     return articles
 
 
+_DEDUP_STOPWORDS = {
+    "the", "a", "an", "for", "in", "of", "to", "on", "and", "as", "its", "it", "is",
+    "was", "says", "say", "said", "after", "with", "at", "by", "from", "this", "that",
+    "amid", "over", "new", "will", "be", "are", "has", "have", "into", "out", "off", "up",
+}
+
+
+def _sig_words(title):
+    """Parole SIGNIFICATIVE del titolo: minuscole, senza punteggiatura, senza stopword,
+    plurali normalizzati (secret/secrets → secret). Base per il match di similarità."""
+    return {(w[:-1] if len(w) > 4 and w.endswith("s") else w)
+            for w in re.findall(r"[a-z0-9]+", (title or "").lower())
+            if len(w) > 2 and w not in _DEDUP_STOPWORDS}
+
+
+def _titles_similar(a, b, threshold=0.6):
+    """True se due titoli sono la STESSA notizia. Overlap = parole significative condivise /
+    min(len) (così un titolo lungo non diluisce il rapporto). Richiede ≥2 parole condivise."""
+    wa, wb = _sig_words(a), _sig_words(b)
+    if len(wa) < 2 or len(wb) < 2:
+        return False
+    shared = len(wa & wb)
+    return shared >= 2 and shared / min(len(wa), len(wb)) >= threshold
+
+
 def deduplicate_with_source_limit(articles, max_total=14, max_per_source=None):
     """
     Deduplicate articles and enforce per-source limit.
@@ -490,14 +515,7 @@ def deduplicate_with_source_limit(articles, max_total=14, max_per_source=None):
     seen_titles = []
 
     for art in articles:
-        title_words = set(art["title"].lower().split())
-        is_dup = False
-        for seen in seen_titles:
-            seen_words = set(seen.lower().split())
-            overlap = len(title_words & seen_words) / max(len(title_words), 1)
-            if overlap > 0.55:
-                is_dup = True
-                break
+        is_dup = any(_titles_similar(art["title"], seen) for seen in seen_titles)
         if not is_dup:
             by_source[art["source"]].append(art)
             seen_titles.append(art["title"])
@@ -543,13 +561,10 @@ def deduplicate_across_sections(ordered_sections):
         for art in (articles or []):
             if len(kept) >= max_display:
                 break
-            words = set((art.get("title", "")).lower().split())
-            if not words:
+            title = art.get("title", "")
+            if not title:
                 continue
-            is_dup = any(
-                len(words & set(s.lower().split())) / max(len(words), 1) > 0.55
-                for s in seen_titles
-            )
+            is_dup = any(_titles_similar(title, s) for s in seen_titles)
             if not is_dup:
                 kept.append(art)
                 seen_titles.append(art.get("title", ""))
