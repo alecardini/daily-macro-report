@@ -31,6 +31,11 @@ COINGLASS_API_KEY = "YOUR_COINGLASS_API_KEY_HERE"
 # Sostituto di CoinGlass: funding rate, open interest, liquidazioni 24h aggregati multi-exchange
 COINALYZE_API_KEY = "1434edfb-bf93-4be7-a5cc-cdea8ddc385d"
 
+# --- FINNHUB API (fallback per yfinance su indici/commodities, gratis) ---
+# Registrati gratis su https://finnhub.io (no carta, 60 req/min). Endpoint /quote (c=corrente,
+# pc=chiusura prec). Scatta SOLO quando yfinance fallisce; usa ETF proxy (SPY/GLD/USO...).
+FINNHUB_API_KEY = "d993llhr01qssj115u10d993llhr01qssj115u1g"
+
 # --- GOOGLE GEMINI API (sintesi 'so what' delle news, gratis) ---
 # Key gratuita da https://aistudio.google.com (free tier, ~1500 req/giorno, no carta).
 # Usata per generare 2 righe di sintesi in cima alle sezioni news. Fallback: nessuna sintesi.

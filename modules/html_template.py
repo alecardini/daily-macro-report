@@ -419,12 +419,13 @@ def render_indices(indices, futures, yields, analysis_text="", rate_exp=None):
     def asset_card(data, show_label=None):
         d = data.get("direction","neutral")
         extra = f'<div class="asset-extra">{show_label}</div>' if show_label else ""
+        fb = f'<div class="fallback-src">{data["fallback_note"]}</div>' if data.get("fallback_note") else ""
         return f"""
         <div class="asset-card {cc(d)}-border">
             <div class="asset-name">{data.get('name', data.get('symbol',''))}</div>
             <div class="asset-price">{data.get('price_fmt','N/A')}</div>
             <div class="asset-change {cc(d)}">{arrow(d)} {data.get('pct_fmt','N/A')} <span class="change-abs">{data.get('change_fmt','')}</span></div>
-            {extra}
+            {extra}{fb}
         </div>"""
 
     idx_html = '<div class="assets-grid">'
@@ -594,6 +595,7 @@ def render_other_assets(assets, gold_etf, asset_analyses=None, fx=None):
                 <div class="arc-name">{name}</div>
                 <div class="arc-price">{data.get('price_fmt','N/A')}</div>
                 <div class="arc-change {cc(d)}">{arrow(d)} {data.get('pct_fmt','N/A')} <span class="change-abs">{data.get('change_fmt','')}</span></div>
+                {f'<div class="fallback-src">{data["fallback_note"]}</div>' if data.get("fallback_note") else ""}
                 {etf_supp}
             </div>
             <div class="arc-right">
@@ -1189,6 +1191,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .cat-crypto{{background:rgba(240,110,60,.18);color:#f0925c}}
 .cat-bigtech{{background:rgba(90,140,240,.20);color:#7ba3f0}}
 .cat-bank{{background:rgba(60,200,140,.16);color:#4fca88}}
+.fallback-src{{font-size:8px;color:#e0953c;margin-top:3px;letter-spacing:.3px;font-style:italic}}
 
 /* OTHER ASSETS (row cards) */
 .asset-row-card{{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px;display:flex;gap:20px;align-items:flex-start}}

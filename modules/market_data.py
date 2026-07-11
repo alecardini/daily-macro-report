@@ -50,6 +50,80 @@ def fmt_price(val, decimals=2):
     return f"{val:,.{decimals}f}"
 
 
+# ─────────────────────────────────────────────────────────────
+# FALLBACK Finnhub (ETF proxy) — RUOTA DI SCORTA per yfinance su indici/commodities/futures.
+# Scatta SOLO quando yfinance non dà nulla per uno strumento; in giorni normali NON viene mai
+# chiamato. % e direzione fedeli dal proxy; livello RICOSTRUITO (non stale) da
+# ultimo_livello_buono × (1+dp%), ancora salvata a ogni fetch yfinance riuscito.
+# ─────────────────────────────────────────────────────────────
+_FINNHUB_PROXY = {
+    "^GSPC": "SPY", "^IXIC": "QQQ", "^DJI": "DIA",          # indici USA
+    "ES=F": "SPY", "NQ=F": "QQQ", "YM=F": "DIA",            # futures
+    "GC=F": "GLD", "SI=F": "SLV", "HG=F": "CPER",           # metalli
+    "CL=F": "USO", "BZ=F": "BNO",                           # oil
+    "DX-Y.NYB": "UUP",                                      # dollar index
+}
+_LAST_LEVEL_CACHE = "/tmp/yf_last_level.json"
+
+
+def _last_level_load():
+    try:
+        with open(_LAST_LEVEL_CACHE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _last_level_save(symbol, price):
+    try:
+        d = _last_level_load()
+        d[symbol] = price
+        with open(_LAST_LEVEL_CACHE, "w") as f:
+            json.dump(d, f)
+    except Exception:
+        pass
+
+
+def _finnhub_fallback(symbol, name):
+    """yfinance è giù per `symbol` → prova Finnhub /quote sull'ETF proxy. Ritorna un dict nel
+    formato di get_yf_ticker_data (con 'fallback_note') oppure None se non mappato/non disponibile."""
+    key = getattr(config, "FINNHUB_API_KEY", "")
+    proxy = _FINNHUB_PROXY.get(symbol)
+    if not key or key.startswith("YOUR_") or not proxy:
+        return None
+    try:
+        j = requests.get("https://finnhub.io/api/v1/quote",
+                         params={"symbol": proxy, "token": key}, timeout=12).json()
+        c, pc, dp = j.get("c"), j.get("pc"), j.get("dp")
+        if not c or not pc:
+            return None
+        pct = float(dp) if dp is not None else (c - pc) / pc * 100
+        direction = "up" if pct > 0 else "down" if pct < 0 else "neutral"
+        marker = f"≈ Finnhub ({proxy} proxy)"
+        anchor = _last_level_load().get(symbol)   # ultimo livello REALE noto dell'indice/commodity
+        if anchor:
+            level = anchor * (1 + pct / 100.0)
+            change = level - anchor                # coerente: change/anchor*100 == pct
+            return {
+                "name": name or symbol, "symbol": symbol, "price": level, "prev_close": anchor,
+                "change": change, "pct_change": pct, "direction": direction,
+                "price_fmt": fmt_price(level),
+                "change_fmt": f"{'+' if change >= 0 else ''}{change:.2f}",
+                "pct_fmt": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
+                "fallback_note": marker,
+            }
+        # nessuna ancora nota → mostro solo la % (fedele), livello N/A
+        return {
+            "name": name or symbol, "symbol": symbol, "price": None,
+            "price_fmt": "N/A", "change_fmt": "", "direction": direction,
+            "pct_fmt": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
+            "fallback_note": marker,
+        }
+    except Exception as e:
+        print(f"[MarketData] Finnhub fallback error {proxy}: {e}")
+        return None
+
+
 def get_yf_ticker_data(symbol, name=""):
     """
     Fetch current price, daily change, and key stats for a Yahoo Finance ticker.
@@ -68,6 +142,10 @@ def get_yf_ticker_data(symbol, name=""):
                 current = float(hist['Close'].iloc[-1])
                 prev_close = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else current
 
+        if current is None:
+            raise ValueError("yfinance returned no price")
+
+        _last_level_save(symbol, current)   # ancora per l'eventuale fallback Finnhub futuro
         change, pct, direction = fmt_change(current, prev_close)
 
         return {
@@ -83,6 +161,11 @@ def get_yf_ticker_data(symbol, name=""):
             "pct_fmt": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
         }
     except Exception as e:
+        # yfinance giù per questo strumento → RUOTA DI SCORTA Finnhub (solo se mappato)
+        fb = _finnhub_fallback(symbol, name)
+        if fb is not None:
+            print(f"[MarketData] {symbol}: yfinance failed → Finnhub proxy fallback")
+            return fb
         print(f"[MarketData] yfinance error for {symbol}: {e}")
         return {
             "name": name or symbol,
