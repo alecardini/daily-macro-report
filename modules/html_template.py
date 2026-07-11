@@ -503,7 +503,7 @@ def render_indices(indices, futures, yields, analysis_text="", rate_exp=None):
         <div class="pc-note" style="margin-top:10px">
             <strong>How to read:</strong> Curve spreads &lt;0 = inverted (recession signal, the 3m10y is the NY Fed's preferred gauge).
             Real yield up = tighter financial conditions (headwind for risk assets). Breakeven = market-priced inflation.
-            Credit OAS shown as percentile vs its own history since 1997 — low percentile = tight/complacent, a widening move often precedes risk-off before equities react.
+            Credit OAS shown as two percentiles: <em>(all)</em> = vs full history since 1997 (tail-aware, but GFC/COVID compress the scale so today looks artificially tight); <em>(5y)</em> = vs the last 5 years (current regime — drives the label/colour). High percentile = wide spread = more credit stress; low = tight/complacent (thin cushion). A widening move often precedes risk-off before equities react.
         </div>
     </div>"""
 

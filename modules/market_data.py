@@ -143,16 +143,22 @@ def _fred_latest(series_id):
     return cur, (cur - prev) * 100, obs[0]["date"]
 
 
-def _fred_percentile(series_id, start="1997-01-01"):
-    """(current, change_in_bps, percentile_vs_history, date) using full history."""
+def _fred_percentile(series_id, start="1997-01-01", roll_years=5):
+    """(current, change_bps, pctile_full, date, pctile_roll).
+    pctile_full = percentile vs tutta la storia (dal 1997); pctile_roll = percentile su
+    finestra mobile `roll_years` anni (regime corrente — non distorto da GFC 2008/COVID 2020)."""
     obs = _fred_obs(series_id, observation_start=start, sort_order="asc")
     if not obs:
-        return None, None, None, None
-    vals = [float(o["value"]) for o in obs]
+        return None, None, None, None, None
+    rows = [(o["date"], float(o["value"])) for o in obs]
+    vals = [v for _, v in rows]
     cur = vals[-1]
     prev = vals[-2] if len(vals) > 1 else cur
-    pctile = sum(1 for v in vals if v < cur) / len(vals) * 100
-    return cur, (cur - prev) * 100, pctile, obs[-1]["date"]
+    pctile_full = sum(1 for v in vals if v < cur) / len(vals) * 100
+    cutoff = (datetime.fromisoformat(rows[-1][0]) - timedelta(days=roll_years * 365)).isoformat()[:10]
+    roll_vals = [v for d, v in rows if d >= cutoff]
+    pctile_roll = (sum(1 for v in roll_vals if v < cur) / len(roll_vals) * 100) if roll_vals else pctile_full
+    return cur, (cur - prev) * 100, pctile_full, obs[-1]["date"], pctile_roll
 
 
 def _curve_note(val):
@@ -246,12 +252,14 @@ def get_treasury_yields():
 
     for name, sid in getattr(config, "FRED_CREDIT", {}).items():
         try:
-            cur, chg_bps, pctile, _ = _fred_percentile(sid)
+            cur, chg_bps, pctile, _, pctile_roll = _fred_percentile(sid)
             if cur is not None:
-                label, label_cls = _credit_label(pctile)
+                # Etichetta/colore guidati dal percentile 5y (regime), non dal full-history
+                # (che con GFC/COVID nel campione fa apparire tutto artificialmente "Tight").
+                label, label_cls = _credit_label(pctile_roll)
                 signals["credit"][name] = {
                     "value_fmt": f"{cur:.2f}%",
-                    "pctile_fmt": f"{pctile:.0f}th pctile",
+                    "pctile_fmt": f"{pctile:.0f}th (all) · {pctile_roll:.0f}th (5y)",
                     "label": label, "dir": label_cls,
                     "change_bps_fmt": f"{chg_bps:+.0f}bp",
                     "widening": chg_bps > 0,
