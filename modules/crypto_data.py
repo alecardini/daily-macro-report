@@ -435,20 +435,41 @@ _CZ_MARKETS_TTL   = 7 * 24 * 3600      # lista mercati cambia raramente
 _CZ_DERIV_CACHE   = "/tmp/coinalyze_deriv_cache.json"
 _CZ_DERIV_TTL     = 30 * 60            # evita di rifare ~12 call su rigenerazioni ravvicinate
 
+# Pacing ADATTIVO condiviso: invece di martellare e poi fare backoff (che alimenta il
+# throttle), teniamo un gap minimo tra chiamate e lo ALLARGHIAMO quando becchiamo un 429.
+# Così ci auto-tariamo sul rate reale di Coinalyze (qualunque sia) e le chiamate passano al
+# primo colpo → dati completi nel tempo minimo. Stato per-processo (si ri-tara ogni run).
+_CZ_MIN_GAP = 2.0     # spaziatura iniziale tra chiamate (s)
+_CZ_MAX_GAP = 10.0    # tetto della cadenza adattiva
+_cz_pace = {"gap": _CZ_MIN_GAP, "last": 0.0}
+
+
 def _cz_get(ep, **params):
     key = getattr(config, "COINALYZE_API_KEY", "")
     if not key or key == "YOUR_COINALYZE_API_KEY_HERE":
         return None
     params["api_key"] = key
-    for attempt in range(4):
+    for attempt in range(2):     # 1 chiamata + 1 retry EFFICIENTE (attesa lunga singola)
+        # pacing: rispetta il gap corrente dall'ultima chiamata
+        wait = _cz_pace["gap"] - (time.time() - _cz_pace["last"])
+        if wait > 0:
+            time.sleep(wait)
         try:
             r = requests.get(_COINALYZE_BASE + ep, params=params, timeout=15)
+            _cz_pace["last"] = time.time()
             if r.status_code == 200:
                 return r.json()
             if r.status_code == 429:
-                time.sleep(4 * (attempt + 1)); continue   # backoff 4/8/12s
+                # adattivo: rallenta la cadenza per TUTTE le chiamate successive
+                _cz_pace["gap"] = min(_CZ_MAX_GAP, _cz_pace["gap"] * 1.6)
+                if attempt == 0:
+                    time.sleep(15)   # attesa lunga: la finestra rientra → il retry passa
+                    continue
         except Exception:
-            time.sleep(3)
+            _cz_pace["last"] = time.time()
+            if attempt == 0:
+                time.sleep(5); continue
+        return None
     return None
 
 def _cz_perp_symbols():
@@ -519,37 +540,29 @@ def _get_coinalyze_derivatives():
     agg = {b: {"oi_now": 0.0, "oi_prev": 0.0, "fr": [], "long": 0.0, "short": 0.0,
                "has_oi": False, "has_fr": False, "has_liq": False} for b in ("BTC", "ETH", "SOL")}
 
-    # Open Interest (corrente + 24h fa) via candele daily
-    for chunk in _cz_chunks(all_syms):
-        data = _cz_get("/open-interest-history", symbols=",".join(chunk), interval="daily",
-                       **{"from": now - 3 * 24 * 3600, "to": now, "convert_to_usd": "true"})
-        time.sleep(3)   # spaziatura per stare sotto il rate-limit Coinalyze (40/min)
-        if isinstance(data, list):
-            for item in data:
-                b = sym2base.get(item.get("symbol")); hist = item.get("history", [])
-                if b and hist:
-                    agg[b]["oi_now"]  += hist[-1].get("c", 0) or 0
-                    agg[b]["oi_prev"] += (hist[-2].get("c", 0) if len(hist) >= 2 else hist[-1].get("c", 0)) or 0
-                    agg[b]["has_oi"] = True
+    # Accumulatori per-endpoint: ognuno ritorna True se il chunk ha risposto (lista, anche
+    # vuota), False se None (429/errore) → il chunk fallito va nella retry-pass.
+    def _acc_oi(data):
+        if not isinstance(data, list):
+            return False
+        for item in data:
+            b = sym2base.get(item.get("symbol")); hist = item.get("history", [])
+            if b and hist:
+                agg[b]["oi_now"]  += hist[-1].get("c", 0) or 0
+                agg[b]["oi_prev"] += (hist[-2].get("c", 0) if len(hist) >= 2 else hist[-1].get("c", 0)) or 0
+                agg[b]["has_oi"] = True
+        return True
 
-    # Funding rate corrente
-    for chunk in _cz_chunks(all_syms):
-        data = _cz_get("/funding-rate", symbols=",".join(chunk))
-        time.sleep(3)
-        if isinstance(data, list):
-            for item in data:
-                b = sym2base.get(item.get("symbol")); v = item.get("value")
-                if b and v is not None:
-                    agg[b]["fr"].append(float(v)); agg[b]["has_fr"] = True
+    def _acc_fr(data):
+        if not isinstance(data, list):
+            return False
+        for item in data:
+            b = sym2base.get(item.get("symbol")); v = item.get("value")
+            if b and v is not None:
+                agg[b]["fr"].append(float(v)); agg[b]["has_fr"] = True
+        return True
 
-    # Liquidazioni 24h — interval ORARIO (non daily): il candle daily è etichettato a
-    # mezzanotte UTC, quello del giorno prima cade fuori dal 'from' e viene scartato →
-    # sommavamo solo il giorno UTC corrente parziale ("da mezzanotte a ora"), non 24h reali.
-    # Con candle orari sommiamo la vera finestra rolling 24h (stabile, BTC il più alto).
-    liq_params = {"from": now - 24 * 3600, "to": now, "convert_to_usd": "true"}
-
-    def _accumulate_liq(data):
-        """True se il chunk ha risposto (lista, anche vuota); False se None (429/errore)."""
+    def _acc_liq(data):
         if not isinstance(data, list):
             return False
         for item in data:
@@ -561,20 +574,21 @@ def _get_coinalyze_derivatives():
                     agg[b]["has_liq"] = True
         return True
 
-    failed_chunks = []
-    for chunk in _cz_chunks(all_syms):
-        data = _cz_get("/liquidation-history", symbols=",".join(chunk), interval="1hour", **liq_params)
-        if not _accumulate_liq(data):
-            failed_chunks.append(chunk)
-        time.sleep(3)
-    # Retry pass: i chunk falliti (429 transitori) si ri-tentano dopo una pausa più lunga,
-    # per lasciar rientrare il rate-window Coinalyze → nessun asset azzerato da un 429.
-    if failed_chunks:
-        time.sleep(8)
-        for chunk in failed_chunks:
-            data = _cz_get("/liquidation-history", symbols=",".join(chunk), interval="1hour", **liq_params)
-            _accumulate_liq(data)
-            time.sleep(3)
+    def _fetch_all(ep, extra, acc):
+        """Fetch tutti i chunk per un endpoint (pacing adattivo in _cz_get) + RETRY-PASS sui
+        chunk falliti dopo cooldown → COMPLETEZZA garantita: nessun asset azzerato da un 429.
+        Con il pacing la retry-pass scatta di rado (fresh run: quasi mai)."""
+        failed = [c for c in _cz_chunks(all_syms) if not acc(_cz_get(ep, symbols=",".join(c), **extra))]
+        if failed:
+            time.sleep(12)
+            for c in failed:
+                acc(_cz_get(ep, symbols=",".join(c), **extra))
+
+    # OI daily (last vs prev close = livello + 24h). Liq interval ORARIO = vera finestra rolling
+    # 24h (il daily è etichettato a mezzanotte UTC → scartava il giorno prima, sommava parziale).
+    _fetch_all("/open-interest-history", {"interval": "daily", "from": now - 3 * 24 * 3600, "to": now, "convert_to_usd": "true"}, _acc_oi)
+    _fetch_all("/funding-rate", {}, _acc_fr)
+    _fetch_all("/liquidation-history", {"interval": "1hour", "from": now - 24 * 3600, "to": now, "convert_to_usd": "true"}, _acc_liq)
 
     out = {}
     for b, a in agg.items():
