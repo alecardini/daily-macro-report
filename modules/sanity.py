@@ -94,9 +94,12 @@ def check_data_quality(data, prev_snapshot=None):
             return None
         return (l or 0) + (s or 0)
 
+    # Soglia 0.2× (non 0.5×): BTC può LEGITTIMAMENTE avere meno liquidazioni di ETH/SOL nei
+    # giorni in cui ETH/SOL sono più volatili. Flag solo il caso quasi-zero (mercati BTC persi
+    # per throttling, es. il bug del 10/07 dove BTC era $23K), non i giorni di ETH volatile.
     btc = _liq_total("BTC")
     peers = [x for x in (_liq_total("ETH"), _liq_total("SOL")) if x]
-    if btc is not None and peers and btc < 0.5 * max(peers):
+    if btc is not None and peers and btc < 0.2 * max(peers):
         warnings.append(
             f"BTC 24h liquidations (${btc:,.0f}) implausibly below ETH/SOL "
             f"(max ${max(peers):,.0f}) — check Coinalyze aggregation")
