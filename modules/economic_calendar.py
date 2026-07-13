@@ -320,52 +320,72 @@ def _match_impact_override(overrides, title, currency):
 
 
 # ── ACTUAL da FRED (arricchimento) ──────────────────────────────────────────
-# Il feed FF non fornisce MAI gli 'actual'. Per un piccolo set di indicatori USA che su FRED
-# sono già nel formato del calendario (nessuna conversione), riempiamo la colonna Actual quando
-# l'evento è passato. Gli altri eventi tengono il link "Vedi dato". FF resta la fonte primaria
-# degli eventi: FRED tocca SOLO la cella Actual di questi eventi già mostrati.
-# (title_substr, currency): (fred_series, formatter, min_ore_dopo_evento, max_lag_giorni_obs)
+# Il feed FF non fornisce MAI gli 'actual'. Per gli indicatori USA che contano di più li
+# ricaviamo da FRED (fonte già usata) quando l'evento è passato; gli altri tengono il link
+# "Vedi dato". FF resta l'UNICA fonte EVENTI: FRED tocca SOLO la cella Actual di eventi già mostrati.
+def _pct_mm(o):  # o=[(date,val),...] desc → variazione % mese-su-mese (headline BLS)
+    return f"{(o[0][1] / o[1][1] - 1) * 100:.1f}%"
+def _pct_yy(o):  # variazione % anno-su-anno (serve 13 osservazioni)
+    return f"{(o[0][1] / o[12][1] - 1) * 100:.1f}%"
+
+# (title_substr, currency): (serie, n_obs, compute_fn(obs), min_ore, max_lag_giorni, exclude_substr)
+# exclude_substr: se nel titolo → l'entry NON matcha (distingue CPI da Core CPI, NFP da ADP).
+# SA/NSA come da BLS: m/m = destagionalizzato; y/y = NON destagionalizzato.
 _FRED_ACTUAL = {
-    ("Federal Funds Rate",  "USD"): ("DFEDTARU", lambda v: f"{v:.2f}%",    3,  6),
-    ("Unemployment Claims", "USD"): ("ICSA",     lambda v: f"{v/1000:.0f}K", 2, 10),
-    ("Unemployment Rate",   "USD"): ("UNRATE",   lambda v: f"{v:.1f}%",    2, 45),
+    ("Federal Funds Rate",  "USD"): ("DFEDTARU", 1, lambda o: f"{o[0][1]:.2f}%",       3,  6, None),
+    ("Unemployment Claims", "USD"): ("ICSA",     1, lambda o: f"{o[0][1]/1000:.0f}K",   2, 10, None),
+    ("Unemployment Rate",   "USD"): ("UNRATE",   1, lambda o: f"{o[0][1]:.1f}%",        2, 45, None),
+    # max_lag ~ (lag di rilascio dell'indicatore + ~13gg buffer): accetta il dato FRESCO del
+    # giorno di rilascio, rifiuta quello del mese PRECEDENTE (stale). NFP esce a inizio mese
+    # (~32gg), CPI/Retail a metà (~44gg), Core PCE a fine mese (~60gg).
+    ("Non-Farm Employment Change", "USD"): ("PAYEMS", 2, lambda o: f"{o[0][1]-o[1][1]:+.0f}K", 2, 45, "adp"),
+    ("Core CPI m/m", "USD"): ("CPILFESL", 2,  _pct_mm, 2, 55, None),
+    ("Core CPI y/y", "USD"): ("CPILFENS", 13, _pct_yy, 2, 55, None),
+    ("CPI m/m",      "USD"): ("CPIAUCSL", 2,  _pct_mm, 2, 55, "core"),
+    ("CPI y/y",      "USD"): ("CPIAUCNS", 13, _pct_yy, 2, 55, "core"),
+    ("Core PCE Price Index m/m", "USD"): ("PCEPILFE", 2, _pct_mm, 2, 70, None),
+    ("Retail Sales m/m", "USD"): ("RSAFS", 2, _pct_mm, 2, 55, "core"),
 }
 _FRED_ACTUAL_CACHE = {}
 
 
-def _fred_actual_value(series_id):
-    """(value, obs_date) più recente da FRED, o (None, None). Cache per-processo."""
-    if series_id in _FRED_ACTUAL_CACHE:
-        return _FRED_ACTUAL_CACHE[series_id]
-    out = (None, None)
+def _fred_actual_obs(series_id, n):
+    """Ultime n osservazioni FRED come [(date_str, value), ...] desc. Cache per-processo."""
+    ck = (series_id, n)
+    if ck in _FRED_ACTUAL_CACHE:
+        return _FRED_ACTUAL_CACHE[ck]
+    out = []
     try:
         key = getattr(config, "FRED_API_KEY", "")
         if key and not key.startswith("YOUR_"):
             r = requests.get("https://api.stlouisfed.org/fred/series/observations",
                              params={"series_id": series_id, "api_key": key, "file_type": "json",
-                                     "sort_order": "desc", "limit": 1}, timeout=12).json()
-            obs = [o for o in r.get("observations", []) if o["value"] not in (".", "")]
-            if obs:
-                out = (float(obs[0]["value"]), datetime.fromisoformat(obs[0]["date"]).date())
+                                     "sort_order": "desc", "limit": n}, timeout=12).json()
+            out = [(o["date"], float(o["value"])) for o in r.get("observations", []) if o["value"] not in (".", "")]
     except Exception as e:
         print(f"[Calendar] FRED actual error {series_id}: {e}")
-    _FRED_ACTUAL_CACHE[series_id] = out
+    _FRED_ACTUAL_CACHE[ck] = out
     return out
 
 
 def _fred_actual_for(raw_title, currency, event_dt_rome, now_rome):
-    """Se l'evento passato è mappato e FRED ha il valore fresco → stringa actual, altrimenti None.
-    Guardie: min ore dopo l'evento (lascia a FRED il tempo di pubblicare) + obs FRED recente."""
-    for (sub, cur), (series, fmt, min_h, max_lag) in _FRED_ACTUAL.items():
-        if cur == currency and sub.lower() in raw_title.lower():
-            if (now_rome - event_dt_rome).total_seconds() < min_h * 3600:
-                return None
-            val, obs_date = _fred_actual_value(series)
-            if val is not None and obs_date is not None and (now_rome.date() - obs_date).days <= max_lag:
-                try:
-                    return fmt(val)
-                except Exception:
-                    return None
+    """Se l'evento passato è mappato e FRED ha il dato fresco → stringa actual, altrimenti None.
+    Guardie: min ore dopo l'evento (tempo a FRED per pubblicare) + obs FRED recente (max_lag)."""
+    t = raw_title.lower()
+    for (sub, cur), (series, n, fn, min_h, max_lag, excl) in _FRED_ACTUAL.items():
+        if cur != currency or sub.lower() not in t or (excl and excl in t):
+            continue
+        if (now_rome - event_dt_rome).total_seconds() < min_h * 3600:
+            return None
+        obs = _fred_actual_obs(series, n)
+        if len(obs) < n:
+            return None
+        obs_date = datetime.fromisoformat(obs[0][0]).date()
+        if (now_rome.date() - obs_date).days > max_lag:
+            return None
+        try:
+            return fn(obs)
+        except Exception:
             return None
     return None
 
