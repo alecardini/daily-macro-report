@@ -615,6 +615,13 @@ def fetch_forex_factory_multiday(days=3):
         except Exception as e:
             print(f"[Calendar] Parsing error {url}: {e}")
 
+    # Mostra TUTTI i giorni della finestra, anche quelli senza eventi rilevanti (lista vuota):
+    # così l'utente distingue "nessun evento importante oggi" da un possibile bug/dato mancante.
+    for i in range(days):
+        d = today_rome.date().__class__.fromordinal(today_rome.date().toordinal() + i)
+        day_key = datetime(d.year, d.month, d.day, tzinfo=ROME_TZ).strftime("%A %d %B")
+        result.setdefault(day_key, [])
+
     # Riordina cronologicamente (il weekend precompilation può inserire giorni fuori ordine)
     def _day_key_to_date(key):
         try:
