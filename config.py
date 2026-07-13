@@ -13,13 +13,13 @@ NEWSAPI_KEY = "YOUR_NEWSAPI_KEY_HERE"
 # --- FRED API (Federal Reserve) ---
 # Registrati gratis su https://fred.stlouisfed.org/docs/api/api_key.html
 # Completamente gratuito, nessun limite pratico
-FRED_API_KEY = "6aafffc0609d4698f7dd3b050e831e34"
+FRED_API_KEY = "YOUR_FRED_API_KEY_HERE"
 
 # --- COINMARKETCAP API (per F&G Index) ---
 # Registrati gratis su https://pro.coinmarketcap.com/account → piano Basic (gratuito)
 # Usata per il CMC Fear & Greed Index (diverso da alternative.me)
 # Se non configurata: viene mostrato solo alternative.me F&G
-CMC_API_KEY = "00745888af784577bfda8bf40cb81863"
+CMC_API_KEY = "YOUR_CMC_API_KEY_HERE"
 
 # --- COINGLASS API ---
 # Registrati gratis su https://coinglass.com/pricing → piano Free
@@ -29,23 +29,34 @@ COINGLASS_API_KEY = "YOUR_COINGLASS_API_KEY_HERE"
 # --- COINALYZE API (derivati crypto aggregati) ---
 # Registrati gratis su https://coinalyze.net → genera API key (free tier, 40 req/min)
 # Sostituto di CoinGlass: funding rate, open interest, liquidazioni 24h aggregati multi-exchange
-COINALYZE_API_KEY = "1434edfb-bf93-4be7-a5cc-cdea8ddc385d"
+COINALYZE_API_KEY = "YOUR_COINALYZE_API_KEY_HERE"
 
 # --- FINNHUB API (fallback per yfinance su indici/commodities, gratis) ---
 # Registrati gratis su https://finnhub.io (no carta, 60 req/min). Endpoint /quote (c=corrente,
 # pc=chiusura prec). Scatta SOLO quando yfinance fallisce; usa ETF proxy (SPY/GLD/USO...).
-FINNHUB_API_KEY = "d993llhr01qssj115u10d993llhr01qssj115u1g"
+FINNHUB_API_KEY = "YOUR_FINNHUB_API_KEY_HERE"
 
 # --- GOOGLE GEMINI API (sintesi 'so what' delle news, gratis) ---
 # Key gratuita da https://aistudio.google.com (free tier, ~1500 req/giorno, no carta).
 # Usata per generare 2 righe di sintesi in cima alle sezioni news. Fallback: nessuna sintesi.
-GEMINI_API_KEY = "AQ.Ab8RN6KelteYcAbvQV0z6t7dSqFpZxEkwT0EGc-_ihwalfvUcQ"
+GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
 GEMINI_MODEL   = "gemini-3.5-flash"   # il modello free PIÙ capace con budget sulla key (i 3.x/2.5 -pro hanno RPD 0). Con chiamata singola (1/run) sta nei limiti.
 # Catena di fallback modello (per RESILIENZA): se il primario dà 503/5xx (sovraccarico
 # Google) o 429 (quota di QUEL modello), _gemini_generate passa al successivo. Ognuno ha
 # quota separata. Ordine = capacità → disponibilità. L'ultimo (flash-lite) ha 500 RPD/gg
 # → backstop quasi sempre up. Id verificati via ListModels API (09/07/2026).
 GEMINI_MODEL_FALLBACKS = ["gemini-2.5-flash", "gemini-3.1-flash-lite"]
+
+# =============================================================================
+# CHIAVI PRIVATE — caricate da config_local.py (git-ignored, NON su GitHub).
+# I segnaposto qui sopra vengono sovrascritti dai valori reali. Su un clone senza
+# config_local.py il report parte comunque (con i segnaposto → fallback puliti).
+# Setup: cp config_local.example.py config_local.py  e inserisci le tue chiavi.
+# =============================================================================
+try:
+    from config_local import *   # noqa: F401,F403
+except ImportError:
+    pass
 
 # =============================================================================
 # IMPOSTAZIONI REPORT
@@ -235,6 +246,7 @@ CALENDAR_WHITELIST = [
     "Crude Oil Inventories",   # EIA Weekly — Low on FF, kept via whitelist
     "Durable Goods Orders",    # USD — Low on FF, kept via whitelist
     "Final GDP q/q",           # GBP — Low on FF, kept via whitelist
+    "GDP q/y",                 # CNY China GDP — Low on FF, kept via whitelist
 ]
 
 # =============================================================================
@@ -262,6 +274,10 @@ CALENDAR_BLACKLIST = [
     "French 10-y Bond Auction",
     "German Final Services PMI",
     "French Final Services PMI",
+    "German 30-y Bond Auction",        # EUR — escluso (whitelist "30-y Bond Auction" lo catturava)
+    "BOC Monetary Policy Report",      # CAD — non richiesto (la decisione "Overnight Rate" resta)
+    "BOC Rate Statement",              # CAD — non richiesto
+    "BOC Press Conference",            # CAD — non richiesto
 ]
 
 # =============================================================================
@@ -306,6 +322,7 @@ CALENDAR_IMPACT_HIGH = [
     ("30-y Bond Auction",         "USD"),   # 30-Year Bond Auction USD → alto (JPY resta escluso da blacklist)
     ("Existing Home Sales",       "USD"),   # USD → alto
     ("German Final CPI",          "EUR"),   # German Final CPI m/m → alto
+    ("GDP q/y",                   "CNY"),   # China GDP → alto
 ]
 
 # =============================================================================

@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 venv/
 .env
+config_local.py
 *.csv
 *.html
 .DS_Store
