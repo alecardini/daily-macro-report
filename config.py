@@ -323,6 +323,8 @@ CALENDAR_IMPACT_HIGH = [
     ("Existing Home Sales",       "USD"),   # USD → alto
     ("German Final CPI",          "EUR"),   # German Final CPI m/m → alto
     ("GDP q/y",                   "CNY"),   # China GDP → alto
+    ("Retail Sales m/m",          "USD"),   # US Retail Sales (copre anche Core Retail Sales m/m) → alto
+    ("Philly Fed Manufacturing Index", "USD"),  # Philly Fed → alto
 ]
 
 # =============================================================================
