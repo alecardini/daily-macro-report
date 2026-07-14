@@ -859,7 +859,7 @@ def render_earnings(earnings_data):
         html += '<div class="etable">'
         html += _earnings_table_header()
         for e in today_list:
-            html += _earnings_row(e, badge="TODAY")
+            html += _earnings_row(e)   # niente badge "TODAY": ridondante (la sezione è già "Reports TODAY") + causava overflow sul nome
         html += "</div></div>"
 
     # ── Prossimi 7 giorni ──
@@ -1252,8 +1252,9 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .earnings-section-label{{font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)}}
 /* Earnings table */
 .etable{{background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:6px}}
-.etable-header{{display:grid;grid-template-columns:80px 1fr 90px 100px 80px 80px 90px 80px;gap:8px;padding:7px 14px;background:var(--bg3);font-size:8px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px}}
-.etable-row{{display:grid;grid-template-columns:80px 1fr 90px 100px 80px 80px 90px 80px;gap:8px;padding:9px 14px;border-top:1px solid var(--border);font-size:11px;align-items:center}}
+.etable-header{{display:grid;grid-template-columns:115px 1fr 90px 100px 80px 80px 90px 80px;gap:8px;padding:7px 14px;background:var(--bg3);font-size:8px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px}}
+.etable-row{{display:grid;grid-template-columns:115px 1fr 90px 100px 80px 80px 90px 80px;gap:8px;padding:9px 14px;border-top:1px solid var(--border);font-size:11px;align-items:center}}
+.etcol-sym{{min-width:0}}
 .etable-row:hover{{background:var(--bg3)}}
 .etcol-sym{{display:flex;align-items:center;gap:4px}}
 .etcol-name{{color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
