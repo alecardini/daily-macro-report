@@ -325,6 +325,8 @@ CALENDAR_IMPACT_HIGH = [
     ("GDP q/y",                   "CNY"),   # China GDP → alto
     ("Retail Sales m/m",          "USD"),   # US Retail Sales (copre anche Core Retail Sales m/m) → alto
     ("Philly Fed Manufacturing Index", "USD"),  # Philly Fed → alto
+    ("Final Core CPI y/y",        "EUR"),   # Eurozone Final Core CPI y/y → alto (serve entry separata: "Final CPI y/y" non la cattura per via del "Core")
+    ("Final CPI y/y",             "EUR"),   # Eurozone Final CPI y/y → alto
 ]
 
 # =============================================================================
