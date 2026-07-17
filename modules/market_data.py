@@ -1078,7 +1078,7 @@ def _rate_expectations_zq(n_windows):
             "windows": windows, "source": "Fed Funds futures (ZQ)"}
 
 
-def get_rate_expectations(n_windows=3):
+def _rate_windows(n_windows=3):
     """Aspettative di policy market-implied. Primario Atlanta Fed MPT (cache 12h,
     stale ≤7gg), fallback futures ZQ, poi None → render mostra 'data not available'."""
     print("[MarketData] Fetching rate expectations (Atlanta Fed MPT)...")
@@ -1111,3 +1111,90 @@ def get_rate_expectations(n_windows=3):
     except Exception as e:
         print(f"[MarketData] ZQ fallback failed: {e}")
         return None
+
+
+# ── Calendario FOMC ufficiale (Federal Reserve) — data DECISIONE (2° giorno) ─────
+# Fonte: federalreserve.gov/monetarypolicy/fomccalendars.htm. NON è calcolabile
+# (le date le fissa la Fed), quindi è hardcoded per l'anno corrente + successivo.
+# ⚠️ MANUTENZIONE: quando la lista si esaurisce il report mostra un avviso da solo
+#    (vedi `outdated` sotto) → aggiungere l'anno nuovo dal calendario ufficiale.
+# Le riunioni "gap" (gen/apr/lug/ott) NON sono coperte dalle finestre trimestrali MPT.
+_FOMC_MEETINGS = [
+    (2026, 1, 28), (2026, 3, 18), (2026, 4, 29), (2026, 6, 17),
+    (2026, 7, 29), (2026, 9, 16), (2026, 10, 28), (2026, 12, 9),
+    (2027, 1, 27), (2027, 3, 17), (2027, 4, 28), (2027, 6, 9),
+    (2027, 7, 28), (2027, 9, 15), (2027, 10, 27), (2027, 12, 8),
+]
+_FOMC_GAP_MONTHS = (1, 4, 7, 10)   # riunioni fuori dalle finestre trimestrali MPT
+
+
+def _next_fomc_zq():
+    """Prossima riunione FOMC. Se è una riunione 'gap' (gen/apr/lug/ott) non coperta
+    dall'MPT, calcola la probabilità hold/hike/cut IMPLICITA dai futures Fed Funds (ZQ)
+    del mese successivo — che non contiene riunioni, quindi riflette il tasso post-decisione
+    in modo pulito (metodologia FedWatch). Ritorna dict o None.
+
+    Affidabilità ('veritiero'): la probabilità viene mostrata SOLO se tutti i controlli
+    passano — EFFR disponibile da FRED, contratto ZQ esistente/fresco/liquido, e variazione
+    entro un singolo scaglione da 25bp (oltre, il modello binario non è valido). Altrimenti
+    si restituisce solo la data, senza numeri inventati."""
+    from datetime import date as _d
+    codes = {1: "F", 2: "G", 3: "H", 4: "J", 5: "K", 6: "M",
+             7: "N", 8: "Q", 9: "U", 10: "V", 11: "X", 12: "Z"}
+    today = datetime.now(ROME_TZ).date()
+
+    nxt = next(((y, m, dd) for (y, m, dd) in _FOMC_MEETINGS if _d(y, m, dd) >= today), None)
+    if nxt is None:
+        return {"outdated": True}   # lista esaurita → il render mostra l'avviso di aggiornamento
+
+    y, m, dd = nxt
+    md = _d(y, m, dd)
+    date_label = f"{md.strftime('%b')} {dd - 1}–{dd}, {y}"   # es. "Jul 28–29, 2026"
+    base = {"date_label": date_label, "decision_label": md.strftime("%b %d"),
+            "is_gap": m in _FOMC_GAP_MONTHS, "days_until": (md - today).days,
+            "hold": None, "hike": None, "cut": None, "outdated": False}
+    if not base["is_gap"]:
+        return base   # coperta dall'MPT → nessuna prob ZQ (la card si nasconde da sola)
+
+    try:
+        effr = _fred_latest("EFFR")[0] or _fred_latest("DFF")[0]
+        if not effr:
+            return base
+        # Contratto del mese SUCCESSIVO alla riunione gap (feb/mag/ago/nov): nessun FOMC dentro
+        # → tasso post-decisione pulito. Le gap sono gen/apr/lug/ott → m+1 non attraversa l'anno.
+        sym = f"ZQ{codes[m + 1]}{str(y)[2:]}.CBT"
+        h = yf.Ticker(sym).history(period="10d")
+        if h is None or len(h) == 0:
+            return base
+        if (today - h.index[-1].date()).days > 5:      # dati stantii → non affidabile
+            return base
+        vol = float(h["Volume"].iloc[-1]) if "Volume" in h.columns else 0
+        if vol < 500:                                   # contratto troppo sottile
+            return base
+        post_rate = 100.0 - float(h["Close"].iloc[-1])
+        change = post_rate - float(effr)                # punti percentuali
+        if abs(change) > 0.375:                         # oltre ~1.5× uno scaglione → modello non valido
+            return base
+        p_move = round(min(1.0, abs(change) / 0.25) * 100)
+        hike, cut = (p_move, 0) if change >= 0 else (0, p_move)
+        base.update({"hold": max(0, 100 - hike - cut), "hike": hike, "cut": cut,
+                     "effr": round(float(effr), 2), "post_rate": round(post_rate, 2),
+                     "contract": sym})
+    except Exception as e:
+        print(f"[MarketData] next-FOMC ZQ calc failed: {e}")
+    return base
+
+
+def get_rate_expectations(n_windows=3):
+    """Finestre MPT/ZQ + prossima riunione FOMC (con prob ZQ se è una riunione gap)."""
+    data = _rate_windows(n_windows)
+    try:
+        nf = _next_fomc_zq()
+    except Exception as e:
+        print(f"[MarketData] next-FOMC failed: {e}")
+        nf = None
+    if data is None:
+        data = {}
+    if nf:
+        data["next_fomc"] = nf
+    return data if (data.get("windows") or data.get("next_fomc")) else None

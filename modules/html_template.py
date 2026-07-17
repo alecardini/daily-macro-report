@@ -510,9 +510,9 @@ def render_indices(indices, futures, yields, analysis_text="", rate_exp=None):
 
     # ── Rate Expectations (Atlanta Fed MPT primary / ZQ fallback) ──
     rate_exp_html = ""
-    if rate_exp and rate_exp.get("windows"):
+    if rate_exp and (rate_exp.get("windows") or rate_exp.get("next_fomc")):
         cards = ""
-        for w in rate_exp["windows"]:
+        for w in (rate_exp.get("windows") or []):
             if w.get("hike") is not None:
                 dist = f'Hold {w["hold"]}% · Hike {w["hike"]}% · Cut {w["cut"]}%'
             else:
@@ -525,6 +525,30 @@ def render_indices(indices, futures, yields, analysis_text="", rate_exp=None):
                 <div class="yield-note">{dist}</div>
                 <div class="yield-change">{mode}</div>
             </div>"""
+
+        # ── Prossima riunione FOMC: data sempre in header; card ZQ solo se è una
+        #    riunione 'gap' non coperta dalle finestre trimestrali MPT (non ridondante). ──
+        nf = rate_exp.get("next_fomc") or {}
+        next_suffix, next_block, outdated_note = "", "", ""
+        if nf.get("outdated"):
+            outdated_note = ('<div class="pc-note" style="margin-top:10px;color:#e0a030">'
+                             '⚠️ FOMC schedule needs updating — the hardcoded meeting list is exhausted.</div>')
+        elif nf.get("date_label"):
+            next_suffix = f' · next FOMC {nf["date_label"]}'
+            if nf.get("is_gap") and nf.get("hike") is not None:
+                next_block = f"""
+        <div class="yields-grid" style="margin-bottom:8px">
+            <div class="yield-card" style="border-color:#3a5a8a">
+                <div class="yield-cat">NEXT FOMC · {nf['decision_label']}</div>
+                <div class="yield-val neutral">Hold {nf['hold']}%</div>
+                <div class="yield-note">Hike {nf['hike']}% · Cut {nf['cut']}%</div>
+                <div class="yield-change">≈ ZQ-implied</div>
+            </div>
+        </div>"""
+            elif nf.get("is_gap"):
+                next_block = (f'<div class="pc-note" style="margin-top:10px">Next FOMC '
+                              f'{nf["date_label"]}: market-implied odds unavailable this run.</div>')
+
         is_zq = "ZQ" in rate_exp.get("source", "")
         if is_zq:
             note = ("<strong>How to read:</strong> Implied average policy rate from 30-day "
@@ -535,14 +559,19 @@ def render_indices(indices, futures, yields, analysis_text="", rate_exp=None):
                     "average SOFR from CME options (Atlanta Fed). Hold/Hike/Cut = probability the "
                     "rate stays in / above / below the current target range by that quarterly "
                     "window; mean = probability-weighted expected rate; mode = single most-likely "
-                    "range. Watch how it shifts over time vs what was priced, not just the level. "
-                    "Quarterly windows, not per-meeting.")
+                    "range. Quarterly windows, not per-meeting. The <em>Next FOMC</em> card, when "
+                    "shown, is the single upcoming meeting the quarterly windows don't cover — its "
+                    "Hold/Hike/Cut is estimated from Fed Funds futures (ZQ), an approximation, not "
+                    "the official CME figure.")
+        grid_html = f'<div class="yields-grid">{cards}</div>' if cards else ""
         rate_exp_html = f"""
     <div class="subsection">
         <h3 class="subsection-title">Rate Expectations — market-implied</h3>
-        <div class="ovr-window">{rate_exp.get('source','')} · as of {rate_exp.get('as_of','')} · current target {rate_exp.get('current_range','')}</div>
-        <div class="yields-grid">{cards}</div>
+        <div class="ovr-window">{rate_exp.get('source','')} · as of {rate_exp.get('as_of','')} · current target {rate_exp.get('current_range','')}{next_suffix}</div>
+        {next_block}
+        {grid_html}
         <div class="pc-note" style="margin-top:10px">{note}</div>
+        {outdated_note}
     </div>"""
 
     return f"""
