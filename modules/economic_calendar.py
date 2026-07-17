@@ -192,12 +192,14 @@ _HOLIDAY_MARKETS = {
     "NZD": "New Zealand Exchange (NZX)",
     "CHF": "Swiss Exchange (SIX)",
     "CAD": "Toronto Stock Exchange (TSX)",
+    "KRW": "Korea Exchange (KRX)",
 }
 
 # Orari di apertura dei principali mercati (ora italiana, ora legale CEST = UTC+2)
 # Formato: (apertura, chiusura)
 _MARKET_HOURS_IT = {
     "Tokyo Stock Exchange (TSE)":             ("02:00", "08:30"),
+    "Korea Exchange (KRX)":                    ("02:00", "08:30"),  # KRX 09:00–15:30 KST (UTC+9) = 02:00–08:30 CEST
     "Chinese Markets (Shanghai, Shenzhen)":   ("03:30", "10:00"),
     "Hong Kong Stock Exchange (HKEX)":        ("03:30", "10:00"),
     "Australian Securities Exchange (ASX)":   ("01:00", "07:00"),
@@ -282,6 +284,27 @@ def _build_nyse_early_close_map() -> dict:
 
 # Calcolato a import time, si ricalcola ad ogni avvio del processo
 NYSE_EARLY_CLOSE = _build_nyse_early_close_map()
+# ────────────────────────────────────────────────────────────────────────────
+
+# ── Festività Korea Exchange (KRX) non coperte da Forex Factory ──────────────
+# FF non fornisce le festività KRW. Il Constitution Day (제헌절, 17 luglio) è tornato
+# festivo nazionale nel 2026 → KRX (KOSPI/KOSDAQ/KONEX), bond e derivati CHIUSI.
+# Regola a data fissa (17 luglio ogni anno), calcolata per anno corrente + prossimo.
+def _kr_market_holidays_for_year(year: int) -> dict:
+    """Ritorna {date: reason} per le festività KRX a data fissa dell'anno."""
+    return {_date(year, 7, 17): "Constitution Day"}
+
+
+def _build_kr_holiday_map() -> dict:
+    from datetime import datetime
+    current_year = datetime.now().year
+    result = {}
+    for yr in (current_year, current_year + 1):
+        result.update(_kr_market_holidays_for_year(yr))
+    return result
+
+
+KR_MARKET_HOLIDAYS = _build_kr_holiday_map()
 # ────────────────────────────────────────────────────────────────────────────
 
 _WEEKEND_CLOSURE_TEXT = (
@@ -552,6 +575,28 @@ def fetch_forex_factory_multiday(days=3):
                 result[day_key] = []
             # Inserisce la riga early close in testa alla giornata
             result[day_key].insert(0, early_ev)
+
+        # Festività KRX non coperte da FF (indipendente: nel weekend la riga
+        # weekend copre già; il 17/7 feriale aggiunge la riga KRX chiusa).
+        if d.weekday() not in (5, 6) and d in KR_MARKET_HOLIDAYS:
+            reason = KR_MARKET_HOLIDAYS[d]
+            flag, _ = CURRENCY_FLAGS.get("KRW", ("🇰🇷", "Corea del Sud"))
+            market = _HOLIDAY_MARKETS["KRW"]
+            hrs = _MARKET_HOURS_IT.get(market)
+            hours_txt = f"Normal hours: {hrs[0]}–{hrs[1]} (Italian time)" if hrs else "Hours not available"
+            kr_ev = {
+                "time": "All day",
+                "currency": "KRW",
+                "flag": flag,
+                "event": f"🔴 {market} CLOSED — {reason} · {hours_txt}",
+                "impact": "CLOSED",
+                "forecast": "—",
+                "previous": "—",
+                "actual": "—",
+                "actual_overdue": False,
+                "source": "Korea Exchange Official Calendar",
+            }
+            result.setdefault(day_key, []).append(kr_ev)
 
     import time as _time
 
