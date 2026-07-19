@@ -258,6 +258,9 @@ CALENDAR_BLACKLIST = [
     "French Flash Manufacturing PMI",
     "French Flash Services PMI",
     "Trimmed Mean CPI",
+    "Common CPI y/y",                  # BoC core (Common) — rimosso su richiesta (CAD)
+    "Claimant Count Change",           # UK jobless claims — rimosso su richiesta (GBP)
+    "Average Earnings Index 3m/y",     # UK avg earnings — rimosso su richiesta (GBP)
     "German 10-y Bond Auction",
     "Final GDP Price Index",
     "Core Durable Goods Orders",
@@ -348,6 +351,10 @@ CALENDAR_IMPACT_MED = [
     ("Final Manufacturing PMI",    "USD"),
     ("Final Services PMI",         "EUR"),   # Eurozone Final Services PMI → medio
     ("Final Services PMI",         "GBP"),   # UK Final Services PMI → medio
+    ("CPI m/m",                    "CAD"),   # Canada CPI headline → medio
+    ("Median CPI y/y",             "CAD"),   # BoC core (Median) → medio
+    ("Trimmed CPI y/y",            "CAD"),   # BoC core (Trimmed) → medio (FF title "Trimmed CPI y/y", non "Trimmed Mean CPI")
+    ("CPI q/q",                    "NZD"),   # NZ CPI → medio (scoped NZD: non tocca il CPI q/q australiano)
 ]
 
 # =============================================================================
