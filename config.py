@@ -257,6 +257,8 @@ CALENDAR_WHITELIST = [
 CALENDAR_BLACKLIST = [
     "French Flash Manufacturing PMI",
     "French Flash Services PMI",
+    "German Flash Manufacturing PMI",
+    "German Flash Services PMI",
     "Trimmed Mean CPI",
     "Common CPI y/y",                  # BoC core (Common) — rimosso su richiesta (CAD)
     "Claimant Count Change",           # UK jobless claims — rimosso su richiesta (GBP)
@@ -295,6 +297,7 @@ CALENDAR_BLACKLIST_CURRENCY = [
     ("30-y Bond Auction", "JPY"),   # Japan 30y bond auction (USD 30y resta visibile)
     ("Employment Change", "CAD"),   # Canada jobs — rimosso (USD/AUD restano)
     ("Unemployment Rate", "CAD"),   # Canada — rimosso (USD/AUD restano)
+    ("Retail Sales m/m",  "GBP"),   # UK Retail Sales — rimosso (US Retail Sales m/m resta HIGH)
 ]
 
 # =============================================================================
@@ -355,6 +358,9 @@ CALENDAR_IMPACT_MED = [
     ("Median CPI y/y",             "CAD"),   # BoC core (Median) → medio
     ("Trimmed CPI y/y",            "CAD"),   # BoC core (Trimmed) → medio (FF title "Trimmed CPI y/y", non "Trimmed Mean CPI")
     ("CPI q/q",                    "NZD"),   # NZ CPI → medio (scoped NZD: non tocca il CPI q/q australiano)
+    ("Flash Manufacturing PMI",    "AUD"),   # AU Flash Manufacturing PMI → medio
+    ("Flash Manufacturing PMI",    "JPY"),   # JP Flash Manufacturing PMI → medio
+    ("Flash Manufacturing PMI",    "EUR"),   # Eurozone aggregate Flash Manufacturing PMI → medio (German/French rimossi via blacklist; US resta HIGH)
 ]
 
 # =============================================================================
