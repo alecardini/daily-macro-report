@@ -333,6 +333,7 @@ CALENDAR_IMPACT_HIGH = [
     ("Philly Fed Manufacturing Index", "USD"),  # Philly Fed → alto
     ("Final Core CPI y/y",        "EUR"),   # Eurozone Final Core CPI y/y → alto (serve entry separata: "Final CPI y/y" non la cattura per via del "Core")
     ("Final CPI y/y",             "EUR"),   # Eurozone Final CPI y/y → alto
+    ("ISM Services PMI",          "USD"),   # US ISM Services PMI → alto
 ]
 
 # =============================================================================
@@ -358,6 +359,8 @@ CALENDAR_IMPACT_MED = [
     ("Median CPI y/y",             "CAD"),   # BoC core (Median) → medio
     ("Trimmed CPI y/y",            "CAD"),   # BoC core (Trimmed) → medio (FF title "Trimmed CPI y/y", non "Trimmed Mean CPI")
     ("CPI q/q",                    "NZD"),   # NZ CPI → medio (scoped NZD: non tocca il CPI q/q australiano)
+    ("Employment Change q/q",      "NZD"),   # NZ Employment → medio
+    ("Unemployment Rate",          "NZD"),   # NZ Unemployment → medio (AUD resta MED, USD non toccato)
     ("Flash Manufacturing PMI",    "AUD"),   # AU Flash Manufacturing PMI → medio
     ("Flash Manufacturing PMI",    "JPY"),   # JP Flash Manufacturing PMI → medio
     ("Flash Manufacturing PMI",    "EUR"),   # Eurozone aggregate Flash Manufacturing PMI → medio (German/French rimossi via blacklist; US resta HIGH)
