@@ -327,7 +327,6 @@ CALENDAR_IMPACT_HIGH = [
     ("10-y Bond Auction",         "USD"),   # 10-Year Note Auction USD → alto
     ("30-y Bond Auction",         "USD"),   # 30-Year Bond Auction USD → alto (JPY resta escluso da blacklist)
     ("Existing Home Sales",       "USD"),   # USD → alto
-    ("German Final CPI",          "EUR"),   # German Final CPI m/m → alto
     ("GDP q/y",                   "CNY"),   # China GDP → alto
     ("Retail Sales m/m",          "USD"),   # US Retail Sales (copre anche Core Retail Sales m/m) → alto
     ("Philly Fed Manufacturing Index", "USD"),  # Philly Fed → alto
@@ -361,6 +360,8 @@ CALENDAR_IMPACT_MED = [
     ("CPI q/q",                    "NZD"),   # NZ CPI → medio (scoped NZD: non tocca il CPI q/q australiano)
     ("Employment Change q/q",      "NZD"),   # NZ Employment → medio
     ("Unemployment Rate",          "NZD"),   # NZ Unemployment → medio (AUD resta MED, USD non toccato)
+    ("German Final CPI m/m",       "EUR"),   # German Final CPI → medio (resta in whitelist → mostrato come MED; Prelim resta HIGH)
+    ("GDP m/m",                    "GBP"),   # UK monthly GDP → medio (era HIGH nativo FF)
     ("Flash Manufacturing PMI",    "AUD"),   # AU Flash Manufacturing PMI → medio
     ("Flash Manufacturing PMI",    "JPY"),   # JP Flash Manufacturing PMI → medio
     ("Flash Manufacturing PMI",    "EUR"),   # Eurozone aggregate Flash Manufacturing PMI → medio (German/French rimossi via blacklist; US resta HIGH)
