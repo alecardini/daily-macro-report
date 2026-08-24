@@ -328,6 +328,7 @@ CALENDAR_IMPACT_HIGH = [
     ("30-y Bond Auction",         "USD"),   # 30-Year Bond Auction USD → alto (JPY resta escluso da blacklist)
     ("Existing Home Sales",       "USD"),   # USD → alto
     ("GDP q/y",                   "CNY"),   # China GDP → alto
+    ("German Final GDP q/q",      "EUR"),   # German Final GDP q/q → alto (resta in whitelist → visibile)
     ("Retail Sales m/m",          "USD"),   # US Retail Sales (copre anche Core Retail Sales m/m) → alto
     ("Philly Fed Manufacturing Index", "USD"),  # Philly Fed → alto
     ("Final Core CPI y/y",        "EUR"),   # Eurozone Final Core CPI y/y → alto (serve entry separata: "Final CPI y/y" non la cattura per via del "Core")
