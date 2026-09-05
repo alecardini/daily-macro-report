@@ -107,7 +107,7 @@ def main():
     data["indices"]      = fetch("Indici USA + VIX", get_us_indices) or {}
     data["futures"]      = fetch("Futures Pre-Market", get_futures) or {}
     data["yields"]       = fetch("Treasury Yields", get_treasury_yields) or {}
-    data["rate_expectations"] = fetch("Rate Expectations (Atlanta Fed MPT)", get_rate_expectations)
+    data["rate_expectations"] = fetch("Rate Expectations (per-meeting, ZQ futures)", get_rate_expectations)
     data["other_assets"] = fetch("DXY / Gold / Silver / Copper", get_other_assets) or {}
     data["fx"]           = fetch("FX Majors", get_fx_majors) or {}
     data["gold_etf"]     = fetch("Gold ETF (GLD/IAU)", get_gold_etf_data) or {}

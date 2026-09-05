@@ -373,8 +373,8 @@ CALENDAR_IMPACT_MED = [
 ]
 
 # =============================================================================
-# RATE EXPECTATIONS — Atlanta Fed Market Probability Tracker (primaria) + ZQ (fallback)
-# MPT = distribuzione probabilità del SOFR medio 3M implicita nelle opzioni CME,
-# calcolata dalla Fed di Atlanta. File storico xlsx ufficiale, aggiornato ~giornalmente.
+# RATE EXPECTATIONS — probabilità per singola riunione FOMC dai futures Fed Funds (ZQ).
+# Nessuna configurazione qui: calendario FOMC e parametri stanno in modules/market_data.py
+# (_FOMC_MEETINGS). L'Atlanta Fed MPT è stato rimosso il 05/09/2026 perché dava medie
+# TRIMESTRALI cumulate su più riunioni, non la probabilità della singola decisione.
 # =============================================================================
-ATLANTA_FED_MPT_URL = "https://www.atlantafed.org/-/media/Project/Atlanta/FRBA/Documents/cenfis/market-probability-tracker/mpt_histdata.xlsx"

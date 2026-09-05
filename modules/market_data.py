@@ -973,228 +973,150 @@ def get_all_sentiment():
 
 
 # ─────────────────────────────────────────────────────────────
-# RATE EXPECTATIONS — Atlanta Fed MPT (primary) + Fed Funds futures ZQ (fallback)
+# RATE EXPECTATIONS — probabilità PER SINGOLA RIUNIONE FOMC
+# Fonte: futures sui Fed Funds (ZQ), metodologia CME FedWatch.
 # ─────────────────────────────────────────────────────────────
+# Perché non l'Atlanta Fed MPT (usato fino al 05/09/2026, poi rimosso): l'MPT dà la
+# distribuzione del SOFR MEDIO su una finestra TRIMESTRALE, che contiene più riunioni
+# (es. la finestra "16 set" copre 16 set → 16 dic = 3 riunioni). Le sue probabilità
+# sono quindi CUMULATIVE e non rispondono alla domanda "cosa fa la Fed a settembre?".
+# Perché non l'API CME FedWatch: esiste ma è a pagamento e richiede credenziali.
+# Questo calcolo è stato validato contro il CME: 57.9% vs 59.4% sulla riunione
+# del 16/09/2026, partendo dallo stesso prezzo di mercato (96.3025).
 
-_MPT_XLSX_CACHE   = "/tmp/mpt_histdata.xlsx"
-_MPT_PARSED_CACHE = "/tmp/mpt_parsed_cache.json"
-_MPT_TTL          = 12 * 3600          # 12h: dato giornaliero
-_MPT_STALE_MAX    = 7 * 24 * 3600      # oltre 7gg la cache è troppo vecchia
-
-
-def _fmt_range_bps(s):
-    """'375bps - 400bps' → '3.75–4.00%'."""
-    m = re.match(r"(\d+)\s*bps\s*-\s*(\d+)\s*bps", str(s).strip())
-    if not m:
-        return str(s)
-    return f"{int(m.group(1))/100:.2f}–{int(m.group(2))/100:.2f}%"
-
-
-def _mpt_fetch_parse(n_windows):
-    """Scarica e parsa l'xlsx ufficiale Atlanta Fed. Ritorna dict o solleva."""
-    import pandas as pd
-    r = requests.get(config.ATLANTA_FED_MPT_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=40)
-    r.raise_for_status()
-    with open(_MPT_XLSX_CACHE, "wb") as f:
-        f.write(r.content)
-    df = pd.read_excel(_MPT_XLSX_CACHE, sheet_name="DATA")
-    df["date"] = pd.to_datetime(df["date"])
-    last = df["date"].max()
-    d = df[df["date"] == last]
-
-    # target range corrente = l'unico ampio 25bp (ignora eventuali range 0-width)
-    cur_fmt = "n/a"
-    for tr in d["target_range"].dropna().unique():
-        m = re.match(r"(\d+)\s*bps\s*-\s*(\d+)\s*bps", str(tr))
-        if m and int(m.group(2)) - int(m.group(1)) == 25:
-            cur_fmt = f"{int(m.group(1))/100:.2f}–{int(m.group(2))/100:.2f}%"
-            break
-
-    windows = []
-    for rs in sorted(d["reference_start"].unique())[:n_windows]:
-        w = d[d["reference_start"] == rs]
-
-        def g(field):
-            v = w[w["field"] == field]["value"]
-            return float(v.iloc[0]) if len(v) else None
-
-        hike, cut, mean = g("Prob: hike"), g("Prob: cut"), g("Rate: mean")
-        if hike is None or cut is None:
-            continue
-        hold = max(0.0, 100.0 - hike - cut)           # hold = resta nel range corrente
-        # range modale (picco della distribuzione)
-        rp = w[w["field"].str.startswith("Prob: ") & w["field"].str.contains("bps")].copy()
-        mode_fmt, mode_prob = None, None
-        if len(rp):
-            rp["value"] = rp["value"].astype(float)
-            top = rp.sort_values("value", ascending=False).iloc[0]
-            mode_fmt = _fmt_range_bps(str(top["field"]).replace("Prob: ", ""))
-            mode_prob = round(float(top["value"]))
-        windows.append({
-            "label":    pd.to_datetime(rs).strftime("%b %Y"),
-            "mean_fmt": f"{mean/100:.2f}%" if mean else "—",
-            "hold": round(hold), "hike": round(hike), "cut": round(cut),
-            "mode_fmt": mode_fmt, "mode_prob": mode_prob,
-        })
-    if not windows:
-        raise ValueError("MPT: nessuna finestra parsata")
-    return {"as_of": last.strftime("%d %b"), "current_range": cur_fmt,
-            "windows": windows, "source": "Atlanta Fed MPT"}
-
-
-def _rate_expectations_zq(n_windows):
-    """Fallback: tasso medio implicito dai futures Fed Funds (ZQ) per i prossimi
-    mesi trimestrali. Solo 'mean' (niente distribuzione hold/hike/cut)."""
-    codes = {1:"F",2:"G",3:"H",4:"J",5:"K",6:"M",7:"N",8:"Q",9:"U",10:"V",11:"X",12:"Z"}
-    now = datetime.now(ROME_TZ)
-    seq, yy = [], now.year
-    while len(seq) < n_windows:
-        for qm in (3, 6, 9, 12):
-            if (yy > now.year or qm >= now.month) and len(seq) < n_windows + 2:
-                seq.append((yy, qm))
-        yy += 1
-    windows = []
-    for yr, mo in seq[:n_windows]:
-        sym = f"ZQ{codes[mo]}{str(yr)[2:]}.CBT"
-        try:
-            lp = getattr(yf.Ticker(sym).fast_info, "last_price", None)
-            if not lp:
-                continue
-            windows.append({"label": datetime(yr, mo, 1).strftime("%b %Y"),
-                            "mean_fmt": f"{100 - float(lp):.2f}%",
-                            "hold": None, "hike": None, "cut": None,
-                            "mode_fmt": None, "mode_prob": None})
-        except Exception:
-            continue
-    if not windows:
-        return None
-    try:
-        u, _, _ = _fred_latest("DFEDTARU")
-        l, _, _ = _fred_latest("DFEDTARL")
-        cur_fmt = f"{l:.2f}–{u:.2f}%" if (u and l) else "n/a"
-    except Exception:
-        cur_fmt = "n/a"
-    return {"as_of": now.strftime("%d %b"), "current_range": cur_fmt,
-            "windows": windows, "source": "Fed Funds futures (ZQ)"}
-
-
-def _rate_windows(n_windows=3):
-    """Aspettative di policy market-implied. Primario Atlanta Fed MPT (cache 12h,
-    stale ≤7gg), fallback futures ZQ, poi None → render mostra 'data not available'."""
-    print("[MarketData] Fetching rate expectations (Atlanta Fed MPT)...")
-    # 1) parsed cache fresca
-    try:
-        if os.path.exists(_MPT_PARSED_CACHE):
-            c = json.load(open(_MPT_PARSED_CACHE))
-            if time.time() - c.get("cached_at", 0) < _MPT_TTL and c.get("data", {}).get("windows"):
-                return c["data"]
-    except Exception:
-        pass
-    # 2) fetch fresco
-    try:
-        data = _mpt_fetch_parse(n_windows)
-        json.dump({"cached_at": time.time(), "data": data}, open(_MPT_PARSED_CACHE, "w"))
-        return data
-    except Exception as e:
-        print(f"[MarketData] MPT fetch/parse failed ({e}); trying stale cache / ZQ fallback")
-    # 3) stale cache ≤7gg
-    try:
-        if os.path.exists(_MPT_PARSED_CACHE):
-            c = json.load(open(_MPT_PARSED_CACHE))
-            if time.time() - c.get("cached_at", 0) < _MPT_STALE_MAX and c.get("data", {}).get("windows"):
-                return c["data"]
-    except Exception:
-        pass
-    # 4) fallback ZQ
-    try:
-        return _rate_expectations_zq(n_windows)
-    except Exception as e:
-        print(f"[MarketData] ZQ fallback failed: {e}")
-        return None
-
-
-# ── Calendario FOMC ufficiale (Federal Reserve) — data DECISIONE (2° giorno) ─────
-# Fonte: federalreserve.gov/monetarypolicy/fomccalendars.htm. NON è calcolabile
-# (le date le fissa la Fed), quindi è hardcoded per l'anno corrente + successivo.
-# ⚠️ MANUTENZIONE: quando la lista si esaurisce il report mostra un avviso da solo
-#    (vedi `outdated` sotto) → aggiungere l'anno nuovo dal calendario ufficiale.
-# Le riunioni "gap" (gen/apr/lug/ott) NON sono coperte dalle finestre trimestrali MPT.
+# Calendario FOMC UFFICIALE (federalreserve.gov) — data della DECISIONE (2° giorno).
+# Non è calcolabile: le date le fissa la Fed. Quando la lista si esaurisce il render
+# mostra da solo l'avviso "FOMC schedule needs updating".
 _FOMC_MEETINGS = [
     (2026, 1, 28), (2026, 3, 18), (2026, 4, 29), (2026, 6, 17),
     (2026, 7, 29), (2026, 9, 16), (2026, 10, 28), (2026, 12, 9),
     (2027, 1, 27), (2027, 3, 17), (2027, 4, 28), (2027, 6, 9),
     (2027, 7, 28), (2027, 9, 15), (2027, 10, 27), (2027, 12, 8),
 ]
-_FOMC_GAP_MONTHS = (1, 4, 7, 10)   # riunioni fuori dalle finestre trimestrali MPT
+_FOMC_MONTHS = {m for _, m, _ in _FOMC_MEETINGS}   # mesi che contengono una riunione
+
+_ZQ_MONTH_CODES = {1: "F", 2: "G", 3: "H", 4: "J", 5: "K", 6: "M",
+                   7: "N", 8: "Q", 9: "U", 10: "V", 11: "X", 12: "Z"}
+
+_ZQ_MIN_VOLUME = 500     # sotto questa soglia il contratto è troppo sottile
+_ZQ_MAX_STALE  = 5       # giorni: oltre, il prezzo non è più affidabile
+_STEP          = 0.25    # uno scaglione di politica monetaria (25bp)
+_MAX_STEP      = 0.375   # oltre ~1.5 scaglioni il modello binario non è valido
 
 
-def _next_fomc_zq():
-    """Prossima riunione FOMC. Se è una riunione 'gap' (gen/apr/lug/ott) non coperta
-    dall'MPT, calcola la probabilità hold/hike/cut IMPLICITA dai futures Fed Funds (ZQ)
-    del mese successivo — che non contiene riunioni, quindi riflette il tasso post-decisione
-    in modo pulito (metodologia FedWatch). Ritorna dict o None.
-
-    Affidabilità ('veritiero'): la probabilità viene mostrata SOLO se tutti i controlli
-    passano — EFFR disponibile da FRED, contratto ZQ esistente/fresco/liquido, e variazione
-    entro un singolo scaglione da 25bp (oltre, il modello binario non è valido). Altrimenti
-    si restituisce solo la data, senza numeri inventati."""
-    from datetime import date as _d
-    codes = {1: "F", 2: "G", 3: "H", 4: "J", 5: "K", 6: "M",
-             7: "N", 8: "Q", 9: "U", 10: "V", 11: "X", 12: "Z"}
-    today = datetime.now(ROME_TZ).date()
-
-    nxt = next(((y, m, dd) for (y, m, dd) in _FOMC_MEETINGS if _d(y, m, dd) >= today), None)
-    if nxt is None:
-        return {"outdated": True}   # lista esaurita → il render mostra l'avviso di aggiornamento
-
-    y, m, dd = nxt
-    md = _d(y, m, dd)
-    date_label = f"{md.strftime('%b')} {dd - 1}–{dd}, {y}"   # es. "Jul 28–29, 2026"
-    base = {"date_label": date_label, "decision_label": md.strftime("%b %d"),
-            "is_gap": m in _FOMC_GAP_MONTHS, "days_until": (md - today).days,
-            "hold": None, "hike": None, "cut": None, "outdated": False}
-    if not base["is_gap"]:
-        return base   # coperta dall'MPT → nessuna prob ZQ (la card si nasconde da sola)
-
+def _zq_implied_rate(year, month):
+    """Tasso medio implicito dal contratto ZQ del mese (100 − prezzo).
+    Ritorna None se il contratto manca, è stantio o troppo illiquido."""
+    from datetime import date as _date
+    code = _ZQ_MONTH_CODES.get(month)
+    if not code:
+        return None
+    sym = f"ZQ{code}{str(year)[2:]}.CBT"
     try:
-        effr = _fred_latest("EFFR")[0] or _fred_latest("DFF")[0]
-        if not effr:
-            return base
-        # Contratto del mese SUCCESSIVO alla riunione gap (feb/mag/ago/nov): nessun FOMC dentro
-        # → tasso post-decisione pulito. Le gap sono gen/apr/lug/ott → m+1 non attraversa l'anno.
-        sym = f"ZQ{codes[m + 1]}{str(y)[2:]}.CBT"
         h = yf.Ticker(sym).history(period="10d")
         if h is None or len(h) == 0:
-            return base
-        if (today - h.index[-1].date()).days > 5:      # dati stantii → non affidabile
-            return base
-        vol = float(h["Volume"].iloc[-1]) if "Volume" in h.columns else 0
-        if vol < 500:                                   # contratto troppo sottile
-            return base
-        post_rate = 100.0 - float(h["Close"].iloc[-1])
-        change = post_rate - float(effr)                # punti percentuali
-        if abs(change) > 0.375:                         # oltre ~1.5× uno scaglione → modello non valido
-            return base
-        p_move = round(min(1.0, abs(change) / 0.25) * 100)
-        hike, cut = (p_move, 0) if change >= 0 else (0, p_move)
-        base.update({"hold": max(0, 100 - hike - cut), "hike": hike, "cut": cut,
-                     "effr": round(float(effr), 2), "post_rate": round(post_rate, 2),
-                     "contract": sym})
-    except Exception as e:
-        print(f"[MarketData] next-FOMC ZQ calc failed: {e}")
-    return base
+            return None
+        if (datetime.now(ROME_TZ).date() - h.index[-1].date()).days > _ZQ_MAX_STALE:
+            return None
+        if "Volume" in h.columns and float(h["Volume"].iloc[-1]) < _ZQ_MIN_VOLUME:
+            return None
+        return 100.0 - float(h["Close"].iloc[-1])
+    except Exception:
+        return None
 
 
-def get_rate_expectations(n_windows=3):
-    """Finestre MPT/ZQ + prossima riunione FOMC (con prob ZQ se è una riunione gap)."""
-    data = _rate_windows(n_windows)
+def _fomc_probabilities(n_meetings=4):
+    """Hold/Hike/Cut per OGNI prossima riunione FOMC, dai futures ZQ.
+
+    Metodo (a catena, partendo dall'EFFR corrente di FRED). Per ogni riunione:
+      • se il mese SUCCESSIVO non contiene riunioni, il suo contratto ZQ riflette in
+        modo PULITO il tasso post-decisione → lettura diretta (es. novembre dopo la
+        riunione di ottobre);
+      • altrimenti si scompone il contratto del mese della riunione pesando i giorni
+        prima/dopo la data di efficacia (il giorno dopo la decisione).
+
+    Affidabilità: un valore viene prodotto SOLO se ogni controllo passa. Al primo
+    passo che fallisce la catena si INTERROMPE — meglio mostrare meno riunioni che
+    numeri inventati. La 1ª riunione è la più precisa; le successive ereditano le
+    stime precedenti, quindi l'incertezza cresce.
+    """
+    import calendar as _cal
+    from datetime import date as _date
+
+    today = datetime.now(ROME_TZ).date()
+    upcoming = [(y, m, d) for (y, m, d) in _FOMC_MEETINGS if _date(y, m, d) >= today]
+    if not upcoming:
+        return {"outdated": True, "meetings": []}     # lista esaurita → avviso nel render
+
+    effr = _fred_latest("EFFR")[0] or _fred_latest("DFF")[0]
+    if not effr:
+        return {"outdated": False, "meetings": []}
+
+    r_prev = float(effr)
+    out = []
+    for (y, m, d) in upcoming[:n_meetings]:
+        nxt_y, nxt_m = (y + 1, 1) if m == 12 else (y, m + 1)
+
+        r_after = None
+        if nxt_m not in _FOMC_MONTHS:                 # mese pulito → lettura diretta
+            r_after = _zq_implied_rate(nxt_y, nxt_m)
+        if r_after is None:                           # altrimenti scomposizione per giorni
+            avg = _zq_implied_rate(y, m)
+            if avg is not None:
+                n_days   = _cal.monthrange(y, m)[1]
+                n_before = d                          # nuovo tasso efficace dal giorno d+1
+                n_after  = n_days - d
+                if n_after >= 3:                      # meno di 3 giorni → troppo rumoroso
+                    r_after = (avg * n_days - n_before * r_prev) / n_after
+        if r_after is None:
+            break
+
+        change = r_after - r_prev
+        if abs(change) > _MAX_STEP:                   # modello binario non applicabile
+            break
+
+        p_move = round(min(1.0, abs(change) / _STEP) * 100)
+        hike = p_move if change >= 0 else 0
+        cut  = p_move if change < 0 else 0
+        md = _date(y, m, d)
+        out.append({
+            "date_label": md.strftime("%d %b %Y"),
+            "day_range":  f"{d - 1}–{d} {md.strftime('%b')}",
+            "days_until": (md - today).days,
+            "hold": max(0, 100 - hike - cut),
+            "hike": hike,
+            "cut":  cut,
+            "change_bps": round(change * 100),
+            "rate_after": round(r_after, 2),
+        })
+        r_prev = r_after
+
+    return {"outdated": False, "meetings": out, "effr": round(float(effr), 2)}
+
+
+def get_rate_expectations(n_meetings=4):
+    """Aspettative di politica monetaria, una riga PER RIUNIONE FOMC."""
+    print("[MarketData] Fetching rate expectations (per-meeting, Fed Funds futures)...")
     try:
-        nf = _next_fomc_zq()
+        res = _fomc_probabilities(n_meetings)
     except Exception as e:
-        print(f"[MarketData] next-FOMC failed: {e}")
-        nf = None
-    if data is None:
-        data = {}
-    if nf:
-        data["next_fomc"] = nf
-    return data if (data.get("windows") or data.get("next_fomc")) else None
+        print(f"[MarketData] Rate expectations failed: {e}")
+        return None
+
+    try:
+        u, _, _ = _fred_latest("DFEDTARU")
+        l, _, _ = _fred_latest("DFEDTARL")
+        cur_fmt = f"{l:.2f}–{u:.2f}%" if (u and l) else "n/a"
+    except Exception:
+        cur_fmt = "n/a"
+
+    if not res.get("meetings") and not res.get("outdated"):
+        return None                                    # render: "data not available"
+    return {
+        "as_of":         datetime.now(ROME_TZ).strftime("%d %b"),
+        "current_range": cur_fmt,
+        "meetings":      res.get("meetings", []),
+        "outdated":      res.get("outdated", False),
+        "effr":          res.get("effr"),
+        "source":        "Fed Funds futures (ZQ) · CME FedWatch methodology",
+    }

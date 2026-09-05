@@ -508,67 +508,47 @@ def render_indices(indices, futures, yields, analysis_text="", rate_exp=None):
         </div>
     </div>"""
 
-    # ── Rate Expectations (Atlanta Fed MPT primary / ZQ fallback) ──
+    # ── Rate Expectations — una card PER RIUNIONE FOMC (ZQ, metodologia FedWatch) ──
     rate_exp_html = ""
-    if rate_exp and (rate_exp.get("windows") or rate_exp.get("next_fomc")):
+    if rate_exp and (rate_exp.get("meetings") or rate_exp.get("outdated")):
         cards = ""
-        for w in (rate_exp.get("windows") or []):
-            if w.get("hike") is not None:
-                dist = f'Hold {w["hold"]}% · Hike {w["hike"]}% · Cut {w["cut"]}%'
-            else:
-                dist = "implied avg policy rate"
-            mode = f'mode {w["mode_fmt"]} ({w["mode_prob"]}%)' if w.get("mode_fmt") else ""
+        for i, mt in enumerate(rate_exp.get("meetings") or []):
+            # la 1ª riunione è la più affidabile; le successive ereditano le stime precedenti
+            lead   = "NEXT FOMC" if i == 0 else "FOMC"
+            border = ' style="border-color:#3a5a8a"' if i == 0 else ""
+            # Hold/Hike/Cut sempre TUTTI E TRE, stessa dimensione: uno 0% oggi è
+            # informazione (dice che quello scenario non è prezzato), e quando in
+            # futuro il Cut salirà si vedrà nello stesso posto, senza sorprese.
+            rows = "".join(
+                f'<div class="{"zero" if v == 0 else ""}"><span>{k}</span><span>{v}%</span></div>'
+                for k, v in (("Hold", mt["hold"]), ("Hike", mt["hike"]), ("Cut", mt["cut"]))
+            )
             cards += f"""
-            <div class="yield-card">
-                <div class="yield-cat">{w['label']}</div>
-                <div class="yield-val neutral">{w['mean_fmt']}</div>
-                <div class="yield-note">{dist}</div>
-                <div class="yield-change">{mode}</div>
+            <div class="yield-card"{border}>
+                <div class="yield-cat">{lead} · {mt['date_label']}</div>
+                <div class="fomc-probs neutral">{rows}</div>
+                <div class="yield-change">→ {mt['rate_after']:.2f}% ({mt['change_bps']:+d} bp)</div>
             </div>"""
 
-        # ── Prossima riunione FOMC: data sempre in header; card ZQ solo se è una
-        #    riunione 'gap' non coperta dalle finestre trimestrali MPT (non ridondante). ──
-        nf = rate_exp.get("next_fomc") or {}
-        next_suffix, next_block, outdated_note = "", "", ""
-        if nf.get("outdated"):
+        outdated_note = ""
+        if rate_exp.get("outdated"):
             outdated_note = ('<div class="pc-note" style="margin-top:10px;color:#e0a030">'
                              '⚠️ FOMC schedule needs updating — the hardcoded meeting list is exhausted.</div>')
-        elif nf.get("date_label"):
-            next_suffix = f' · next FOMC {nf["date_label"]}'
-            if nf.get("is_gap") and nf.get("hike") is not None:
-                next_block = f"""
-        <div class="yields-grid" style="margin-bottom:8px">
-            <div class="yield-card" style="border-color:#3a5a8a">
-                <div class="yield-cat">NEXT FOMC · {nf['decision_label']}</div>
-                <div class="yield-val neutral">Hold {nf['hold']}%</div>
-                <div class="yield-note">Hike {nf['hike']}% · Cut {nf['cut']}%</div>
-                <div class="yield-change">≈ ZQ-implied</div>
-            </div>
-        </div>"""
-            elif nf.get("is_gap"):
-                next_block = (f'<div class="pc-note" style="margin-top:10px">Next FOMC '
-                              f'{nf["date_label"]}: market-implied odds unavailable this run.</div>')
 
-        is_zq = "ZQ" in rate_exp.get("source", "")
-        if is_zq:
-            note = ("<strong>How to read:</strong> Implied average policy rate from 30-day "
-                    "Fed Funds futures (100 − price). <em>Fallback source</em> — the primary "
-                    "Atlanta Fed distribution was unavailable this run.")
-        else:
-            note = ("<strong>How to read:</strong> Market-implied distribution of the 3-month "
-                    "average SOFR from CME options (Atlanta Fed). Hold/Hike/Cut = probability the "
-                    "rate stays in / above / below the current target range by that quarterly "
-                    "window; mean = probability-weighted expected rate; mode = single most-likely "
-                    "range. Quarterly windows, not per-meeting. The <em>Next FOMC</em> card, when "
-                    "shown, is the single upcoming meeting the quarterly windows don't cover — its "
-                    "Hold/Hike/Cut is estimated from Fed Funds futures (ZQ), an approximation, not "
-                    "the official CME figure.")
+        note = ("<strong>How to read:</strong> Probability of what the Fed does at each "
+                "<em>individual</em> meeting, derived from 30-day Fed Funds futures (ZQ) using the "
+                "CME FedWatch methodology: the rate implied by the contract covering each meeting is "
+                "compared with the current effective rate, and the gap is expressed as a share of one "
+                "25bp step. Hold/Hike/Cut therefore refer to that single decision — not to a period "
+                "average. The first meeting is the most reliable; later ones are chained off the "
+                "earlier estimates, so uncertainty grows with distance. These are <em>approximations</em> "
+                "(typically within ~1-2 points of CME FedWatch), not the official CME figures.")
         grid_html = f'<div class="yields-grid">{cards}</div>' if cards else ""
+        effr_txt  = f" · EFFR {rate_exp['effr']:.2f}%" if rate_exp.get("effr") else ""
         rate_exp_html = f"""
     <div class="subsection">
-        <h3 class="subsection-title">Rate Expectations — market-implied</h3>
-        <div class="ovr-window">{rate_exp.get('source','')} · as of {rate_exp.get('as_of','')} · current target {rate_exp.get('current_range','')}{next_suffix}</div>
-        {next_block}
+        <h3 class="subsection-title">Rate Expectations — per FOMC meeting</h3>
+        <div class="ovr-window">{rate_exp.get('source','')} · as of {rate_exp.get('as_of','')} · current target {rate_exp.get('current_range','')}{effr_txt}</div>
         {grid_html}
         <div class="pc-note" style="margin-top:10px">{note}</div>
         {outdated_note}
@@ -1175,6 +1155,10 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .yield-val{{font-size:20px;font-weight:700}}
 .yield-change{{color:var(--text3);font-size:10px;margin-top:3px}}
 .yield-note{{font-size:11px;font-weight:600;margin-top:3px}}
+/* FOMC: Hold/Hike/Cut hanno pari dignità -> stessa dimensione, sempre tutti e tre */
+.fomc-probs{{margin:7px 0 4px;font-size:13px;font-weight:600;line-height:1.55}}
+.fomc-probs div{{display:flex;justify-content:space-between;gap:10px}}
+.fomc-probs .zero{{color:var(--text3)}}
 
 /* CRYPTO */
 .global-banner{{background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:10px 18px;display:flex;gap:24px;flex-wrap:wrap;font-size:11px;color:var(--text2);margin-bottom:18px}}
