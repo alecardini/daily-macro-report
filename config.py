@@ -365,6 +365,7 @@ CALENDAR_IMPACT_MED = [
     ("German Final CPI m/m",       "EUR"),   # German Final CPI → medio (resta in whitelist → mostrato come MED; Prelim resta HIGH)
     ("GDP m/m",                    "GBP"),   # UK monthly GDP → medio (era HIGH nativo FF)
     ("GDP q/q",                    "AUD"),   # Australia GDP → medio (scoped AUD: Final GDP q/q GBP e German Final GDP q/q EUR restano HIGH)
+    ("GDP q/q",                    "NZD"),   # New Zealand GDP → medio (scoped NZD; i Final GDP q/q GBP/EUR/JPY restano HIGH)
     ("RBNZ Monetary Policy Statement", "NZD"),  # → medio (la decisione tassi "Official Cash Rate" resta HIGH)
     ("RBNZ Rate Statement",        "NZD"),   # → medio
     ("RBNZ Press Conference",      "NZD"),   # → medio
