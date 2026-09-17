@@ -238,19 +238,6 @@ def render_sentiment(sentiment, vix_data=None, sentiment_analysis=""):
     </div>"""
 
 
-def render_cot_positioning(cot_data=None):
-    """
-    STUB: la logica COT vive in un COT engine separato. In futuro questa sezione
-    leggerà cot-summary.json (handoff settimanale) e mostrerà i segnali per asset.
-    """
-    return """
-    <div class="cot-stub-section">
-        <div class="cot-stub-badge">Coming soon</div>
-        <div class="cot-stub-text">Weekly CFTC Commitment of Traders positioning — for each key asset: net position, 3-year COT index (0–100, with extreme flags &gt;85 / &lt;15), week-over-week velocity, and price/positioning divergence (bullish / bearish / neutral). Served by a dedicated COT engine (separate tool) via a weekly <code>cot-summary.json</code> handoff.</div>
-        <span class="source-tag">CFTC · via COT engine (planned)</span>
-    </div>"""
-
-
 # ─────────────────────────────────────────────────────────────
 # CRYPTO
 # ─────────────────────────────────────────────────────────────
@@ -545,6 +532,10 @@ def render_indices(indices, futures, yields, analysis_text="", rate_exp=None):
                 "(typically within ~1-2 points of CME FedWatch), not the official CME figures.")
         grid_html = f'<div class="yields-grid">{cards}</div>' if cards else ""
         effr_txt  = f" · EFFR {rate_exp['effr']:.2f}%" if rate_exp.get("effr") else ""
+        if effr_txt and rate_exp.get("effr_derived"):
+            # Post-FOMC window: FRED still shows the pre-decision rate, so the starting
+            # point (and target range) come from the meeting-month futures.
+            effr_txt += " (post-meeting, derived from futures — FRED lags 1 day)"
         rate_exp_html = f"""
     <div class="subsection">
         <h3 class="subsection-title">Rate Expectations — per FOMC meeting</h3>
@@ -1020,7 +1011,6 @@ def generate_html(data):
     cb_news_html  = _safe(render_news_section, data.get("cb_news", []), "No central bank news in the last 48h.", synthesis=_syn.get("cb_news",""))
     crypto_news_html = _safe(render_news_section, data.get("crypto_news", []), "No crypto news in the last 24h.", synthesis=_syn.get("crypto_news",""))
     sentiment_html = _safe(render_sentiment, data.get("sentiment", {}), vix_data, analyses.get("sentiment",""))
-    cot_html       = _safe(render_cot_positioning, data.get("cot"))
     crypto_html   = _safe(render_crypto, data.get("crypto", {}), analyses.get("crypto",{}))
     stablecoin_html = _safe(render_stablecoin_liquidity, data.get("stablecoin", {}))
     indices_html  = _safe(render_indices, data.get("indices",{}), data.get("futures",{}), data.get("yields",{}), analyses.get("indices",""), data.get("rate_expectations"))
@@ -1107,9 +1097,6 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 /* SENTIMENT */
 .sentiment-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px}}
 .sentiment-card{{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px}}
-.cot-stub-section{{border:1px dashed var(--border);border-radius:10px;opacity:.75;display:flex;flex-direction:column;gap:9px;padding:16px 18px}}
-.cot-stub-badge{{align-self:flex-start;background:var(--bg3);color:var(--text3);padding:2px 9px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase}}
-.cot-stub-text{{color:var(--text3);font-size:11px;line-height:1.55;max-width:900px}}
 .sentiment-card h4{{color:var(--text2);font-size:10px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px}}
 .gauge-bar{{width:100%;height:8px;background:var(--bg3);border-radius:4px;overflow:hidden;margin-bottom:4px}}
 .gauge-fill{{height:100%;border-radius:4px;transition:width .5s}}
@@ -1372,15 +1359,6 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
     <span class="section-sub">Fear & Greed · AAII · VIX</span>
   </div>
   <div class="section-body">{sentiment_html}</div>
-</div>
-
-<div class="section">
-  <div class="section-header">
-    <span class="section-icon">📊</span>
-    <span class="section-title">Positioning — COT</span>
-    <span class="section-sub">CFTC Commitment of Traders — weekly (via COT engine)</span>
-  </div>
-  <div class="section-body">{cot_html}</div>
 </div>
 
 <div class="section">

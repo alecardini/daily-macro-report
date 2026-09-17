@@ -1048,11 +1048,44 @@ def _fomc_probabilities(n_meetings=4):
     if not upcoming:
         return {"outdated": True, "meetings": []}     # lista esaurita → avviso nel render
 
-    effr = _fred_latest("EFFR")[0] or _fred_latest("DFF")[0]
+    effr, _, effr_date = _fred_latest("EFFR")
+    if not effr:
+        effr, _, effr_date = _fred_latest("DFF")
     if not effr:
         return {"outdated": False, "meetings": []}
 
     r_prev = float(effr)
+    start_derived = False
+    start_change  = 0.0
+
+    # FRED pubblica l'EFFR con 1 giorno di ritardo. Nei 1-2 giorni dopo una riunione il
+    # dato è quindi PRE-decisione e la prima riunione futura "erediterebbe" la mossa
+    # appena fatta (es. 17/09/2026: EFFR del 15/09 = 3.63% ma la Fed ha alzato il 16 →
+    # ottobre mostrava Hike 100% invece di ~52%). In quel caso il tasso di partenza si
+    # ricava dal contratto ZQ del mese della riunione, che il mercato prezza sapendo
+    # cosa ha deciso la Fed: stessa scomposizione per giorni usata più sotto.
+    past = [(y, m, d) for (y, m, d) in _FOMC_MEETINGS if _date(y, m, d) < today]
+    if past and effr_date:
+        ly, lm, ld = past[-1]
+        try:
+            effr_day = datetime.strptime(str(effr_date)[:10], "%Y-%m-%d").date()
+        except ValueError:
+            effr_day = None
+        if effr_day is not None and effr_day <= _date(ly, lm, ld):
+            avg = _zq_implied_rate(ly, lm)
+            n_days   = _cal.monthrange(ly, lm)[1]
+            n_before = ld
+            n_after  = n_days - ld
+            if avg is None or n_after < 3:
+                return {"outdated": False, "meetings": []}   # meglio niente che un numero vecchio
+            r_new = (avg * n_days - n_before * r_prev) / n_after
+            start_change = r_new - r_prev
+            if abs(start_change) > _MAX_STEP:
+                return {"outdated": False, "meetings": []}
+            r_prev = r_new
+            start_derived = True
+
+    r_start = r_prev
     out = []
     for (y, m, d) in upcoming[:n_meetings]:
         nxt_y, nxt_m = (y + 1, 1) if m == 12 else (y, m + 1)
@@ -1091,7 +1124,13 @@ def _fomc_probabilities(n_meetings=4):
         })
         r_prev = r_after
 
-    return {"outdated": False, "meetings": out, "effr": round(float(effr), 2)}
+    # start_rate = tasso da cui parte la catena; "start_shift" = mossa appena fatta dalla
+    # Fed (in scaglioni da 25bp) rilevata dai futures quando FRED è ancora indietro.
+    return {"outdated": False, "meetings": out,
+            "effr": round(float(effr), 2),
+            "start_rate": round(r_start, 2),
+            "start_derived": start_derived,
+            "start_shift": round(start_change / _STEP) * _STEP if start_derived else 0.0}
 
 
 def get_rate_expectations(n_meetings=4):
@@ -1103,10 +1142,14 @@ def get_rate_expectations(n_meetings=4):
         print(f"[MarketData] Rate expectations failed: {e}")
         return None
 
+    # Anche il target range di FRED (DFEDTARU/L) è in ritardo di 1 giorno: se il tasso
+    # di partenza è stato derivato dai futures, il range viene spostato della stessa
+    # mossa (già arrotondata a scaglioni da 25bp).
+    shift = float(res.get("start_shift") or 0.0)
     try:
         u, _, _ = _fred_latest("DFEDTARU")
         l, _, _ = _fred_latest("DFEDTARL")
-        cur_fmt = f"{l:.2f}–{u:.2f}%" if (u and l) else "n/a"
+        cur_fmt = f"{l + shift:.2f}–{u + shift:.2f}%" if (u and l) else "n/a"
     except Exception:
         cur_fmt = "n/a"
 
@@ -1117,6 +1160,7 @@ def get_rate_expectations(n_meetings=4):
         "current_range": cur_fmt,
         "meetings":      res.get("meetings", []),
         "outdated":      res.get("outdated", False),
-        "effr":          res.get("effr"),
+        "effr":          res.get("start_rate", res.get("effr")),
+        "effr_derived":  bool(res.get("start_derived")),
         "source":        "Fed Funds futures (ZQ) · CME FedWatch methodology",
     }

@@ -11,18 +11,17 @@ An active trader starts the day by manually checking a dozen dashboards: rates, 
 - **Overnight cross-asset recap** — moves since the prior US close (equity futures, 10Y yield, FX, commodities, crypto), with a one-line synthesis.
 - **Economic calendar** — three-day high-impact events in local time, with released actuals for the key US prints (NFP, CPI/Core CPI, PCE, retail sales, jobless claims, Fed decision) pulled from FRED.
 - **Rates & credit** — full Treasury curve, 2s10s / 3m10y spreads, real yield and breakeven, and HY/IG credit spreads shown as a percentile versus both full history and the current five-year regime.
-- **Rate expectations** — the market-implied policy path from the Atlanta Fed's SOFR-options distribution (hold / hike / cut probabilities by quarter).
+- **Rate expectations** — per-meeting hold / hike / cut probabilities for the next four FOMC meetings, derived from 30-day Fed Funds futures (ZQ) with the CME FedWatch methodology.
 - **Crypto** — BTC/ETH/SOL prices and dominance, spot-ETF flows, and aggregated multi-exchange funding, open interest and 24h liquidations.
 - **Liquidity & positioning** — stablecoin supply and net flow as a dry-powder proxy, plus Deribit put/call ratios and implied volatility (DVOL).
 - **Equities** — US indices and pre-market futures, the Asian session, sector rotation, and an earnings calendar covering large caps and a crypto-proxy watchlist.
 - **Sentiment** — crypto and equity Fear & Greed, the AAII survey, and VIX.
 - **News** — breaking, central-bank, crypto, oil and AI feeds, de-duplicated and impact-ranked, each with a short, strictly descriptive LLM-generated summary.
 - **Data-quality layer** — flags implausible or stale values (impossible prices, absurd moves, frozen sources) before rendering.
-- *(Planned)* CFTC Commitment of Traders positioning.
 
 ## Data sources
 
-All free or public-tier: FRED (Federal Reserve of St. Louis), the Atlanta Fed Market Probability Tracker, CoinGecko, Coinalyze, Deribit, DefiLlama, Binance, farside.co.uk, Forex Factory, Slickcharts, Yahoo Finance (with a Finnhub fallback), Frankfurter (ECB reference rates), Google Gemini (news synthesis), and RSS feeds from major financial and general-news outlets, the Fed / ECB / BoE / BoJ, and crypto publications.
+All free or public-tier: FRED (Federal Reserve of St. Louis), CME Fed Funds futures (via Yahoo Finance), CoinGecko, Coinalyze, Deribit, DefiLlama, Binance, farside.co.uk, Forex Factory, Slickcharts, Yahoo Finance (with a Finnhub fallback), Frankfurter (ECB reference rates), Google Gemini (news synthesis), and RSS feeds from major financial and general-news outlets, the Fed / ECB / BoE / BoJ, and crypto publications.
 
 ## Tech stack
 
