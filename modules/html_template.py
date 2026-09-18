@@ -29,40 +29,13 @@ def arrow(direction):
 # CALENDARIO ECONOMICO
 # ─────────────────────────────────────────────────────────────
 
-_CAL_SUFFIX = {"K": 1e3, "M": 1e6, "B": 1e9, "T": 1e12}
-
-
-def _cal_num(s):
-    """Numero da una stringa FF ('<1.25%', '-1349M', '0.5%', '245K'); None se non numerica."""
-    try:
-        t = str(s).strip().replace(",", "").replace("%", "").lstrip("<>")
-        mult = 1.0
-        if t and t[-1].upper() in _CAL_SUFFIX:
-            mult, t = _CAL_SUFFIX[t[-1].upper()], t[:-1]
-        return float(t) * mult
-    except (ValueError, TypeError):
-        return None
-
-
-def _actual_class(actual, forecast):
-    """Colore dell'actual rispetto al forecast: sopra → verde, sotto → rosso, uguale o non
-    confrontabile → neutro (stesso stile della cella forecast). Confronto puramente numerico."""
-    a, f = _cal_num(actual), _cal_num(forecast)
-    if a is None or f is None:
-        return ""
-    if a > f:
-        return "actual-above"
-    if a < f:
-        return "actual-below"
-    return ""
-
-
 def _render_calendar_table(events):
     rows = ""
     for ev in events:
         actual = ev.get("actual", "—")
         actual_overdue = ev.get("actual_overdue", False)
-        actual_cls = _actual_class(actual, ev.get("forecast", "—")) if actual not in ["—", "", "N/A"] else ""
+        # Actual pubblicato: stesso colore delle altre celle, solo in grassetto
+        actual_cls = "actual-val" if actual not in ["—", "", "N/A"] else ""
         if actual_overdue:
             actual_cell = '<a href="https://www.investing.com/economic-calendar/" target="_blank" class="actual-pending-btn" title="Data released but not yet updated by Forex Factory — click to see the value on Investing.com">🔗 View data</a>'
         else:
@@ -1098,8 +1071,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .time-cell{{color:var(--acc);font-weight:700;white-space:nowrap}}
 .event-name{{color:var(--text);font-weight:500}}
 .data-cell{{color:var(--text2);text-align:center}}
-.actual-above{{color:var(--pos);font-weight:700}}
-.actual-below{{color:var(--neg);font-weight:700}}
+.actual-val{{font-weight:900}}
 .actual-pending-btn{{display:inline-block;background:#2c3e5022;border:1px solid #3498db;color:#3498db;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;text-decoration:none;white-space:nowrap}}
 .actual-pending-btn:hover{{background:#3498db33;color:#74b9ff}}
 .flag-badge{{background:var(--bg3);border:1px solid var(--border);padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;color:var(--gold)}}
