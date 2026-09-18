@@ -6,9 +6,9 @@ Filter: High importance events only
 """
 
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
-import sys, os
+import sys, os, re, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 
@@ -413,6 +413,48 @@ def _fred_actual_for(raw_title, currency, event_dt_rome, now_rome):
     return None
 
 
+# ── ACTUAL dalla PAGINA Forex Factory (arricchimento, tutte le valute) ───────────────
+# Il feed JSON non ha il campo 'actual', ma la pagina calendario di FF incorpora un blocco
+# JSON (`calendarComponentStates`) con GLI STESSI eventi del feed (stesso titolo, valuta e
+# timestamp) più l'actual. Verificato 18/09/2026: 103/104 eventi del feed matchano in modo
+# ESATTO (l'unico escluso era fuori settimana). Il feed resta l'UNICA fonte EVENTI: questa
+# funzione tocca SOLO la cella Actual di eventi già mostrati e già passati. Qualunque
+# problema (blocco, cambio struttura) → {} e la cella resta il link "View data".
+_FF_PAGE_ACTUALS_CACHE = {}
+
+
+def _ff_page_actuals(day):
+    """{(titolo_lower, valuta, epoch): actual} dalla pagina settimana FF che contiene `day`."""
+    monday = day - timedelta(days=day.weekday())
+    if monday in _FF_PAGE_ACTUALS_CACHE:
+        return _FF_PAGE_ACTUALS_CACHE[monday]
+    out = {}
+    try:
+        url = f"https://www.forexfactory.com/calendar?week={monday.strftime('%b%d.%Y').lower()}"
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                                                     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36"},
+                         timeout=15)
+        r.raise_for_status()
+        m = re.search(r'days:\s*(\[\{"date".*?\}\])\s*,\s*\n', r.text, re.S)
+        if m:
+            for d in json.loads(m.group(1)):
+                for e in d.get("events", []):
+                    actual = (e.get("actual") or "").strip()
+                    if actual and e.get("name") and e.get("currency") and e.get("dateline"):
+                        out[(e["name"].strip().lower(), e["currency"], int(e["dateline"]))] = actual
+        print(f"[Calendar] FF page actuals: {len(out)} values (week of {monday})")
+    except Exception as e:
+        print(f"[Calendar] FF page actuals unavailable ({e}) — keeping 'View data' links")
+    _FF_PAGE_ACTUALS_CACHE[monday] = out
+    return out
+
+
+def _ff_page_actual_for(raw_title, currency, event_dt):
+    """Actual della pagina FF per l'evento del feed (match esatto titolo+valuta+timestamp)."""
+    key = (raw_title.strip().lower(), currency, int(event_dt.timestamp()))
+    return _ff_page_actuals(event_dt.astimezone(ROME_TZ).date()).get(key)
+
+
 def _parse_ff_json(data, target_dates):
     """Parse Forex Factory JSON into {day_key: [events]} for target_dates."""
     whitelist         = [w.lower() for w in getattr(config, "CALENDAR_WHITELIST", [])]
@@ -504,9 +546,11 @@ def _parse_ff_json(data, target_dates):
             raw_title = event.get("title", "—")
             renamed   = _maybe_rename_rate_event(raw_title, currency)
 
-            # Arricchimento actual da FRED (solo set USA mappato); altrimenti resta il link "Vedi dato"
+            # Arricchimento actual: 1) pagina FF (tutte le valute, match esatto) → 2) FRED (solo
+            # set USA mappato) → altrimenti resta il link "Vedi dato"
             if actual_overdue:
-                _fa = _fred_actual_for(raw_title, currency, event_dt_rome, now_rome)
+                _fa = _ff_page_actual_for(raw_title, currency, event_dt) \
+                      or _fred_actual_for(raw_title, currency, event_dt_rome, now_rome)
                 if _fa:
                     actual_raw, actual_overdue = _fa, False
 
