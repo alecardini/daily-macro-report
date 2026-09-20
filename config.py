@@ -275,6 +275,7 @@ CALENDAR_BLACKLIST = [
     "French Final Manufacturing PMI",
     "German Final Manufacturing PMI",
     "BOE Gov Bailey Speaks",
+    "RBA Gov Bullock Speaks",          # AUD — RBA Gov speeches — rimosso su richiesta
     "Spanish 10-y Bond Auction",
     "French 10-y Bond Auction",
     "German Final Services PMI",
