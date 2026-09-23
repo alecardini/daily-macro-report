@@ -413,21 +413,24 @@ def _fred_actual_for(raw_title, currency, event_dt_rome, now_rome):
     return None
 
 
-# ── ACTUAL dalla PAGINA Forex Factory (arricchimento, tutte le valute) ───────────────
-# Il feed JSON non ha il campo 'actual', ma la pagina calendario di FF incorpora un blocco
-# JSON (`calendarComponentStates`) con GLI STESSI eventi del feed (stesso titolo, valuta e
-# timestamp) più l'actual. Verificato 18/09/2026: 103/104 eventi del feed matchano in modo
-# ESATTO (l'unico escluso era fuori settimana). Il feed resta l'UNICA fonte EVENTI: questa
-# funzione tocca SOLO la cella Actual di eventi già mostrati e già passati. Qualunque
-# problema (blocco, cambio struttura) → {} e la cella resta il link "View data".
-_FF_PAGE_ACTUALS_CACHE = {}
+# ── ACTUAL + REVISION dalla PAGINA Forex Factory (arricchimento, tutte le valute) ────
+# Il feed JSON non ha i campi 'actual' e 'revision', ma la pagina calendario di FF incorpora
+# un blocco JSON (`calendarComponentStates`) con GLI STESSI eventi del feed (stesso titolo,
+# valuta e timestamp) più entrambi. Verificato 18/09/2026: 103/104 eventi del feed matchano
+# in modo ESATTO (l'unico escluso era fuori settimana). Il feed resta l'UNICA fonte EVENTI:
+# questa funzione tocca SOLO le celle Actual/Previous di eventi già mostrati. Qualunque
+# problema (blocco, cambio struttura) → {} e le celle restano come prima.
+# SEMANTICA REVISION (verificata 23/09/2026 incrociando FXStreet): FF 'previous' = valore
+# pubblicato all'epoca, FF 'revision' = valore RIVISTO. Es. GBP Public Sector Net Borrowing
+# FF previous=1.8B / revision=2.0B ↔ FXStreet previous=1.8 / revised=2.04.
+_FF_PAGE_CACHE = {}
 
 
-def _ff_page_actuals(day):
-    """{(titolo_lower, valuta, epoch): actual} dalla pagina settimana FF che contiene `day`."""
+def _ff_page_data(day):
+    """{(titolo_lower, valuta, epoch): {'actual','revision'}} dalla pagina settimana FF."""
     monday = day - timedelta(days=day.weekday())
-    if monday in _FF_PAGE_ACTUALS_CACHE:
-        return _FF_PAGE_ACTUALS_CACHE[monday]
+    if monday in _FF_PAGE_CACHE:
+        return _FF_PAGE_CACHE[monday]
     out = {}
     try:
         url = f"https://www.forexfactory.com/calendar?week={monday.strftime('%b%d.%Y').lower()}"
@@ -439,20 +442,24 @@ def _ff_page_actuals(day):
         if m:
             for d in json.loads(m.group(1)):
                 for e in d.get("events", []):
-                    actual = (e.get("actual") or "").strip()
-                    if actual and e.get("name") and e.get("currency") and e.get("dateline"):
-                        out[(e["name"].strip().lower(), e["currency"], int(e["dateline"]))] = actual
-        print(f"[Calendar] FF page actuals: {len(out)} values (week of {monday})")
+                    actual   = (e.get("actual") or "").strip()
+                    revision = (e.get("revision") or "").strip()
+                    if (actual or revision) and e.get("name") and e.get("currency") and e.get("dateline"):
+                        out[(e["name"].strip().lower(), e["currency"], int(e["dateline"]))] = \
+                            {"actual": actual, "revision": revision}
+        n_act = sum(1 for v in out.values() if v["actual"])
+        n_rev = sum(1 for v in out.values() if v["revision"])
+        print(f"[Calendar] FF page: {n_act} actuals, {n_rev} revisions (week of {monday})")
     except Exception as e:
-        print(f"[Calendar] FF page actuals unavailable ({e}) — keeping 'View data' links")
-    _FF_PAGE_ACTUALS_CACHE[monday] = out
+        print(f"[Calendar] FF page unavailable ({e}) — keeping 'View data' links, no revisions")
+    _FF_PAGE_CACHE[monday] = out
     return out
 
 
-def _ff_page_actual_for(raw_title, currency, event_dt):
-    """Actual della pagina FF per l'evento del feed (match esatto titolo+valuta+timestamp)."""
+def _ff_page_entry(raw_title, currency, event_dt):
+    """Voce della pagina FF per l'evento del feed (match esatto titolo+valuta+timestamp)."""
     key = (raw_title.strip().lower(), currency, int(event_dt.timestamp()))
-    return _ff_page_actuals(event_dt.astimezone(ROME_TZ).date()).get(key)
+    return _ff_page_data(event_dt.astimezone(ROME_TZ).date()).get(key) or {}
 
 
 def _parse_ff_json(data, target_dates):
@@ -546,13 +553,22 @@ def _parse_ff_json(data, target_dates):
             raw_title = event.get("title", "—")
             renamed   = _maybe_rename_rate_event(raw_title, currency)
 
+            page = _ff_page_entry(raw_title, currency, event_dt)
+
             # Arricchimento actual: 1) pagina FF (tutte le valute, match esatto) → 2) FRED (solo
             # set USA mappato) → altrimenti resta il link "Vedi dato"
             if actual_overdue:
-                _fa = _ff_page_actual_for(raw_title, currency, event_dt) \
+                _fa = page.get("actual") \
                       or _fred_actual_for(raw_title, currency, event_dt_rome, now_rome)
                 if _fa:
                     actual_raw, actual_overdue = _fa, False
+
+            # Revisione del dato precedente: il 'previous' resta quello pubblicato all'epoca,
+            # la revisione si mostra sotto (è un'informazione a sé, non va nascosta).
+            previous_raw = event.get("previous", "") or ""
+            revision = page.get("revision", "")
+            if revision and revision.strip() == previous_raw.strip():
+                revision = ""
 
             result[day_key].append({
                 "time": event_dt_rome.strftime("%H:%M"),
@@ -561,7 +577,8 @@ def _parse_ff_json(data, target_dates):
                 "event": renamed,
                 "impact": impact_label,
                 "forecast": event.get("forecast", "—") or "—",
-                "previous": event.get("previous", "—") or "—",
+                "previous": previous_raw or "—",
+                "revision": revision,
                 "actual": actual_raw if actual_raw else "—",
                 "actual_overdue": actual_overdue,
                 "source": "Forex Factory",

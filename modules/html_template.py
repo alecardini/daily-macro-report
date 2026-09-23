@@ -36,6 +36,11 @@ def _render_calendar_table(events):
         actual_overdue = ev.get("actual_overdue", False)
         # Actual pubblicato: stesso colore delle altre celle, solo in grassetto
         actual_cls = "actual-val" if actual not in ["—", "", "N/A"] else ""
+        # Revisione del dato precedente: riga separata sotto il previous (FF 'previous' resta
+        # il valore pubblicato all'epoca, 'revision' è il valore rivisto).
+        rev = ev.get("revision", "")
+        revision_note = (f'<div class="revision-note" title="Previous value revised by the '
+                         f'statistics office">revision: {rev}</div>') if rev else ""
         if actual_overdue:
             actual_cell = '<a href="https://www.investing.com/economic-calendar/" target="_blank" class="actual-pending-btn" title="Data released but not yet updated by Forex Factory — click to see the value on Investing.com">🔗 View data</a>'
         else:
@@ -61,7 +66,7 @@ def _render_calendar_table(events):
             <td class="event-name">{ev.get('event','—')}</td>
             <td><span class="impact-badge {impact_badge_cls}">{impact_val}</span></td>
             <td class="data-cell">{ev.get('forecast','—')}</td>
-            <td class="data-cell">{ev.get('previous','—')}</td>
+            <td class="data-cell">{ev.get('previous','—')}{revision_note}</td>
             <td class="data-cell {actual_cls}">{actual_cell}</td>
         </tr>"""
     return f"""
@@ -1072,6 +1077,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .event-name{{color:var(--text);font-weight:500}}
 .data-cell{{color:var(--text2);text-align:center}}
 .actual-val{{font-weight:900}}
+.revision-note{{margin-top:3px;font-size:10px;font-weight:400;color:var(--text3);letter-spacing:.2px}}
 .actual-pending-btn{{display:inline-block;background:#2c3e5022;border:1px solid #3498db;color:#3498db;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;text-decoration:none;white-space:nowrap}}
 .actual-pending-btn:hover{{background:#3498db33;color:#74b9ff}}
 .flag-badge{{background:var(--bg3);border:1px solid var(--border);padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;color:var(--gold)}}
