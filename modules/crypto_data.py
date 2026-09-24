@@ -2,8 +2,7 @@
 Crypto Data Module
 
 - BTC, ETH, SOL: prezzi + variazioni (CoinGecko)
-- BTC ETF flows: farside.co.uk (fonte principale settore) + yfinance per AUM
-- ETH ETF flows: farside.co.uk
+- ETF flows BTC/ETH/SOL: SoSoValue (con flag di completezza) → fallback farside.co.uk; yfinance per l'AUM dei singoli fondi
 - Liquidazioni: CoinGlass API
 - Crypto Fear & Greed: alternative.me (API pubblica)
 """
@@ -160,9 +159,109 @@ def _save_farside_cache(asset_name, data):
     except Exception:
         pass
 
+# ── SoSoValue: fonte PRIMARIA dei flussi ETF ────────────────────────────────────────
+# Perché non farside come primaria (24/09/2026): farside riempie la riga del giorno MANO A
+# MANO che gli emittenti comunicano, mettendo 0.0 ai fondi che non hanno ancora riportato e
+# senza alcun marcatore di "provvisorio" (verificato sull'HTML grezzo). Generando il report
+# verso le 09:00 italiane (≈03:00 ET) si fotografava un dato a metà: BTC $32.4M invece di
+# $346.9M, ETH $2.5M invece di $104.5M. SoSoValue espone per OGNI valore `status`
+# ("1" = aggiornamento completato, l'"Update completed" del sito) e `lastUpdateDate` → il
+# dato si usa solo quando la giornata è chiusa, altrimenti si ripiega su farside.
+_SOSOVALUE_URL   = "https://api.sosovalue.xyz/openapi/v2/etf/currentEtfDataMetrics"
+_SOSOVALUE_TYPES = {"BTC": "us-btc-spot", "ETH": "us-eth-spot", "SOL": "us-sol-spot"}
+_SOSOVALUE_MAX_STALE = 7      # giorni: oltre, il dato non è più attendibile
+
+
+def _soso_value(node, complete_only=True):
+    """Valore float da un campo SoSoValue {value,status,lastUpdateDate}; None se non chiuso."""
+    if not isinstance(node, dict) or node.get("value") in (None, ""):
+        return None
+    if complete_only and str(node.get("status")) != "1":
+        return None
+    try:
+        return float(node["value"])
+    except (TypeError, ValueError):
+        return None
+
+
+def _fetch_sosovalue(asset_name):
+    """Flussi ETF da SoSoValue. Ritorna None (→ fallback farside) se la giornata non è chiusa,
+    se il dato è troppo vecchio o se l'API non risponde: mai un numero parziale."""
+    cached, is_stale = _load_farside_cache(f"soso_{asset_name}")
+    if cached and not is_stale:
+        return cached
+    asset_type = _SOSOVALUE_TYPES.get(asset_name)
+    if not asset_type:
+        return None
+    # Retry con backoff: questa macchina ha blip DNS occasionali (già visti su github.com);
+    # senza retry si ripiegherebbe su farside proprio nella finestra in cui è ancora parziale.
+    last_err = None
+    for attempt in range(3):
+        if attempt:
+            time.sleep(3 * attempt)
+        try:
+            r = requests.post(_SOSOVALUE_URL, json={"type": asset_type},
+                              headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"}, timeout=15)
+            r.raise_for_status()
+            break
+        except Exception as e:
+            last_err = e
+    else:
+        print(f"[Crypto] SoSoValue {asset_name} non disponibile ({last_err}) → farside")
+        return None
+    try:
+        data  = (r.json() or {}).get("data") or {}
+        daily = data.get("dailyNetInflow") or {}
+        total = _soso_value(daily)
+        if total is None:
+            print(f"[Crypto] SoSoValue {asset_name}: giornata non ancora chiusa "
+                  f"(status={daily.get('status')}, {daily.get('lastUpdateDate')}) → farside")
+            return None
+
+        day = datetime.strptime(str(daily.get("lastUpdateDate"))[:10], "%Y-%m-%d").date()
+        if (datetime.now().date() - day).days > _SOSOVALUE_MAX_STALE:
+            print(f"[Crypto] SoSoValue {asset_name}: dato fermo al {day} → farside")
+            return None
+
+        by_etf = {}
+        for e in data.get("list") or []:
+            v = _soso_value(e.get("dailyNetInflow"))
+            if e.get("ticker") and v is not None:
+                by_etf[e["ticker"]] = v / 1e6
+
+        total_m = total / 1e6
+        cum     = _soso_value(data.get("cumNetInflow"))
+        nav     = _soso_value(data.get("totalNetAssets"))
+        result = {
+            "last_date": day.strftime("%d %b %Y"),
+            "daily_total_m": total_m,
+            "daily_total_fmt": (fmt_large(total_m * 1e6) if abs(total_m) >= 1
+                                else f"{'-' if total_m < 0 else ''}${abs(total_m):.1f}M"),
+            "daily_total_raw": total_m * 1e6,
+            "by_etf": by_etf,
+            "cumulative_total_m": cum / 1e6 if cum is not None else None,
+            "cumulative_fmt": fmt_large(cum) if cum is not None else "N/A",
+            "net_assets_fmt": fmt_large(nav) if nav is not None else None,
+            "direction": "up" if total_m > 0 else "down" if total_m < 0 else "neutral",
+            "source": f"SoSoValue — {asset_name} ETF Flows",
+        }
+        print(f"[Crypto] SoSoValue {asset_name}: {result['daily_total_fmt']} ({result['last_date']}, "
+              f"{len(by_etf)} ETF, update completed)")
+        _save_farside_cache(f"soso_{asset_name}", result)
+        return result
+    except Exception as e:
+        print(f"[Crypto] SoSoValue {asset_name} non disponibile ({e}) → farside")
+        return None
+
+
+def _fetch_etf_flows(asset_name, farside_url):
+    """Flussi ETF: SoSoValue se la giornata è chiusa, altrimenti farside (fallback)."""
+    return _fetch_sosovalue(asset_name) or _fetch_farside(farside_url, asset_name)
+
+
 def _fetch_farside(url, asset_name):
     """
-    Scrape farside.co.uk ETF flow table.
+    Scrape farside.co.uk ETF flow table (FALLBACK: vedi nota su SoSoValue sopra).
     Cache su disco 30min + retry con backoff su errori HTTP.
     Returns dict with: last_date, daily_total, by_etf, cumulative_total
     """
@@ -201,8 +300,17 @@ def _fetch_farside(url, asset_name):
 
             rows = main_table.find_all("tr")
             headers_row = [th.get_text(strip=True) for th in rows[0].find_all(["th", "td"])]
+            # Pagina /sol/: la prima riga è quasi vuota (solo "Total") e i ticker stanno nella
+            # SECONDA — per BTC/ETH sono invece già nella prima. Senza questo il breakdown per
+            # ETF del SOL restava sempre vuoto.
+            if sum(1 for h in headers_row if h) <= 2 and len(rows) > 1:
+                second = [td.get_text(strip=True) for td in rows[1].find_all(["th", "td"])]
+                if len(second) == len(headers_row):
+                    headers_row = [(b or a) for a, b in zip(headers_row, second)]
 
-            skip_labels = {"Total", "Average", "Maximum", "Minimum", ""}
+            # Righe descrittive della pagina SOL (commissioni, seed capital): non sono flussi.
+            skip_labels = {"Total", "Average", "Maximum", "Minimum", "",
+                           "Fee", "Staking fee", "Seed"}
             data_rows = []
             for row in rows[1:]:
                 cells = [td.get_text(strip=True) for td in row.find_all(["td", "th"])]
@@ -267,9 +375,9 @@ def _fetch_farside(url, asset_name):
 
 
 def get_btc_etf_flows():
-    """BTC spot ETF flows da farside.co.uk + AUM da yfinance."""
-    print("[Crypto] Fetching BTC ETF flows (farside.co.uk)...")
-    farside = _fetch_farside("https://farside.co.uk/bitcoin-etf-flow-all-data/", "BTC")
+    """BTC spot ETF flows (SoSoValue → farside) + AUM dei singoli ETF da yfinance."""
+    print("[Crypto] Fetching BTC ETF flows (SoSoValue, fallback farside)...")
+    farside = _fetch_etf_flows("BTC", "https://farside.co.uk/bitcoin-etf-flow-all-data/")
 
     # AUM dai principali ETF BTC via yfinance
     btc_etfs = {
@@ -304,7 +412,7 @@ def get_btc_etf_flows():
         "farside": farside,
         "etf_aum": etf_aum,
         "total_aum": fmt_large(total_aum) if total_aum else "N/A",
-        "source": "farside.co.uk + Yahoo Finance",
+        "source": "SoSoValue / farside.co.uk + Yahoo Finance",
         "url": "https://farside.co.uk/bitcoin-etf-flow-all-data/",
     }
 
@@ -317,9 +425,9 @@ def get_btc_etf_flows():
 
 
 def get_eth_etf_flows():
-    """ETH spot ETF flows da farside.co.uk."""
-    print("[Crypto] Fetching ETH ETF flows (farside.co.uk)...")
-    farside = _fetch_farside("https://farside.co.uk/ethereum-etf-flow-all-data/", "ETH")
+    """ETH spot ETF flows (SoSoValue → farside)."""
+    print("[Crypto] Fetching ETH ETF flows (SoSoValue, fallback farside)...")
+    farside = _fetch_etf_flows("ETH", "https://farside.co.uk/ethereum-etf-flow-all-data/")
 
     eth_etfs = {
         "ETHA": "iShares Ethereum Trust",
@@ -353,7 +461,7 @@ def get_eth_etf_flows():
         "farside": farside,
         "etf_aum": etf_aum,
         "total_aum": fmt_large(total_aum) if total_aum else "N/A",
-        "source": "farside.co.uk + Yahoo Finance",
+        "source": "SoSoValue / farside.co.uk + Yahoo Finance",
         "url": "https://farside.co.uk/ethereum-etf-flow-all-data/",
     }
     if farside:
@@ -366,13 +474,13 @@ def get_eth_etf_flows():
 
 def get_sol_etf_flows():
     """
-    SOL spot ETF flows da farside.co.uk + AUM da yfinance.
+    SOL spot ETF flows (SoSoValue → farside) + AUM dei singoli ETF da yfinance.
     ETF approvati: BSOL, GSOL, FSOL, VSOL, SOEZ, QSOL, TSOL, SOLC
     """
-    print("[Crypto] Fetching SOL ETF flows (farside.co.uk)...")
+    print("[Crypto] Fetching SOL ETF flows (SoSoValue, fallback farside)...")
 
     # farside usa /sol/ per Solana (URL diverso da BTC/ETH)
-    farside = _fetch_farside("https://farside.co.uk/sol/", "SOL")
+    farside = _fetch_etf_flows("SOL", "https://farside.co.uk/sol/")
 
     sol_etfs = {
         "BSOL": "Bitwise Solana ETF",
@@ -409,7 +517,7 @@ def get_sol_etf_flows():
         "farside": farside,
         "etf_aum": etf_aum,
         "total_aum": fmt_large(total_aum) if total_aum else "N/A",
-        "source": "farside.co.uk + Yahoo Finance",
+        "source": "SoSoValue / farside.co.uk + Yahoo Finance",
         "url": "https://farside.co.uk/sol/",
     }
     if farside:

@@ -2,7 +2,7 @@
 HTML Template Generator — aggiornato con:
 - Micro analisi per ogni asset
 - VIX nella sezione sentiment
-- ETF flows BTC/ETH da farside.co.uk
+- ETF flows BTC/ETH/SOL da SoSoValue (fallback farside.co.uk)
 - Dual F&G label (alternative.me + nota CMC)
 - News da fonti multiple (finance + world + geopolitics)
 """
@@ -293,7 +293,11 @@ def render_crypto(crypto_data, analyses=None):
             flow_arr = "▲" if flow_raw > 0 else "▼" if flow_raw < 0 else "—"
             flow_fmt = etf_data.get("total_inflow_24h", "N/A")
             last_date = farside.get("last_date", "") if farside else ""
+            # "cumulative_fmt" è il FLUSSO NETTO CUMULATO (non l'AUM: erano due cose diverse
+            # etichettate uguale). L'AUM vero arriva da SoSoValue, quando disponibile.
             cum_fmt = farside.get("cumulative_fmt", "N/A") if farside else "N/A"
+            nav_fmt = farside.get("net_assets_fmt") if farside else None
+            nav_txt = f' &nbsp;·&nbsp; Net assets: {nav_fmt}' if nav_fmt else ""
 
             # Per-ETF breakdown
             by_etf_html = ""
@@ -314,7 +318,7 @@ def render_crypto(crypto_data, analyses=None):
                 <div class="etf-flow-main {flow_dir}">{flow_arr} {flow_fmt}
                     <span class="etf-date">{last_date}</span>
                 </div>
-                <div class="etf-cum">Historical cumulative AUM: {cum_fmt}</div>
+                <div class="etf-cum">Cumulative net inflow: {cum_fmt}{nav_txt}</div>
                 {by_etf_html}
                 <div class="etf-links">
                     <a href="{farside_url}" target="_blank">farside.co.uk</a>
@@ -1372,7 +1376,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
   <div class="section-header">
     <span class="section-icon">₿</span>
     <span class="section-title">Crypto — BTC · ETH · SOL</span>
-    <span class="section-sub">CoinGecko · farside.co.uk (ETF flows) · Coinalyze (funding/OI/liq)</span>
+    <span class="section-sub">CoinGecko · SoSoValue / farside.co.uk (ETF flows) · Coinalyze (funding/OI/liq)</span>
   </div>
   <div class="section-body">{crypto_html}</div>
 </div>
