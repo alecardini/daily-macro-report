@@ -247,6 +247,12 @@ CALENDAR_WHITELIST = [
     "Durable Goods Orders",    # USD — Low on FF, kept via whitelist
     "Final GDP q/q",           # GBP — Low on FF, kept via whitelist
     "GDP q/y",                 # CNY China GDP — Low on FF, kept via whitelist
+    "ISM Manufacturing Prices",# USD — Low on FF: serve la whitelist perché il filtro d'ingresso
+                               # scarta i "Low" PRIMA degli override (l'entry in IMPACT_HIGH da
+                               # sola non bastava e restava inerte) → ora visibile e HIGH
+    "ISM Non-Manufacturing Prices",  # USD — ⚠️ FF NON pubblica questo evento (verificato su 5
+                               # settimane di uscite ISM servizi, nessun nome alternativo): voce
+                               # INERTE, pronta se un giorno lo aggiungesse. Come Chicago PMI.
 ]
 
 # =============================================================================
@@ -337,6 +343,8 @@ CALENDAR_IMPACT_HIGH = [
     ("Final Core CPI y/y",        "EUR"),   # Eurozone Final Core CPI y/y → alto (serve entry separata: "Final CPI y/y" non la cattura per via del "Core")
     ("Final CPI y/y",             "EUR"),   # Eurozone Final CPI y/y → alto
     ("ISM Services PMI",          "USD"),   # US ISM Services PMI → alto
+    ("ISM Manufacturing PMI",     "USD"),   # US ISM Manufacturing PMI → alto (FF lo dà Medium)
+    ("ISM Non-Manufacturing Prices", "USD"),  # → alto se/quando FF lo pubblicherà (oggi assente)
 ]
 
 # =============================================================================
@@ -352,6 +360,9 @@ CALENDAR_IMPACT_MED = [
     ("Manufacturing PMI",          "CAD"),   # CAD Manufacturing PMI → medio
     ("Final Manufacturing PMI",    "JPY"),
     ("RatingDog Manufacturing PMI","CNY"),
+    ("Non-Manufacturing PMI",      "CNY"),   # China NBS non-manifatturiero → medio (il MED batte
+                                             # l'HIGH di ("Manufacturing PMI","CNY"), che lo catturava
+                                             # per sottostringa; il Manufacturing PMI cinese resta HIGH)
     ("Manufacturing PMI",          "CHF"),
     ("Final Manufacturing PMI",    "EUR"),
     ("Final Manufacturing PMI",    "GBP"),
