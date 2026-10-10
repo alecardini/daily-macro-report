@@ -40,7 +40,9 @@ FINNHUB_API_KEY = "YOUR_FINNHUB_API_KEY_HERE"
 # Key gratuita da https://aistudio.google.com (free tier, ~1500 req/giorno, no carta).
 # Usata per generare 2 righe di sintesi in cima alle sezioni news. Fallback: nessuna sintesi.
 GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
-GEMINI_MODEL   = "gemini-3.5-flash"   # il modello free PIÙ capace con budget sulla key (i 3.x/2.5 -pro hanno RPD 0). Con chiamata singola (1/run) sta nei limiti.
+GEMINI_MODEL   = "gemini-3.6-flash"   # free tier (i 3.x/2.5 -pro hanno RPD 0). Con chiamata singola (1/run) sta nei limiti.
+# 10/10/2026: gemini-3.5-flash DEPRECATO da Google e auto-rediretto al 3.6 (verificato:
+# modelVersion servito = gemini-3.6-flash) → ora lo chiamiamo per nome, senza dipendere dal redirect.
 # Catena di fallback modello (per RESILIENZA): se il primario dà 503/5xx (sovraccarico
 # Google) o 429 (quota di QUEL modello), _gemini_generate passa al successivo. Ognuno ha
 # quota separata. Ordine = capacità → disponibilità. L'ultimo (flash-lite) ha 500 RPD/gg
