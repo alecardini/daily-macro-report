@@ -284,6 +284,24 @@ def _build_nyse_early_close_map() -> dict:
 
 # Calcolato a import time, si ricalcola ad ogni avvio del processo
 NYSE_EARLY_CLOSE = _build_nyse_early_close_map()
+
+
+# ── Festività USA "solo banche/bond": NYSE e Nasdaq APERTI ──────────────────────
+# Per Forex Factory "Bank Holiday" USD = banche chiuse. Quasi sempre coincide con la borsa
+# chiusa, tranne DUE giorni l'anno in cui banche, Fed e mercato dei Treasury (SIFMA) sono
+# chiusi ma NYSE/Nasdaq trattano regolarmente. Prima venivano mostrati come "NYSE CLOSED"
+# (errore visto il 12/10/2026, Columbus Day). Regole fisse, calcolate per ogni anno:
+#   • Columbus Day: 2° lunedì di ottobre
+#   • Veterans Day: 11 novembre — se cade nel weekend la festività federale slitta al
+#     venerdì/lunedì vicino, quindi si accetta la finestra 10–12 novembre (in quella finestra
+#     non cade mai una chiusura NYSE: il Thanksgiving è sempre ≥ 22 novembre).
+def _us_bank_only_holiday(d):
+    """Nome della festività se `d` è un giorno 'solo banche/bond' USA, altrimenti None."""
+    if d.month == 10 and d.weekday() == 0 and 8 <= d.day <= 14:
+        return "Columbus Day"
+    if d.month == 11 and 10 <= d.day <= 12:
+        return "Veterans Day"
+    return None
 # ────────────────────────────────────────────────────────────────────────────
 
 # ── Festività Korea Exchange (KRX) non coperte da Forex Factory ──────────────
@@ -307,22 +325,67 @@ def _build_kr_holiday_map() -> dict:
 KR_MARKET_HOLIDAYS = _build_kr_holiday_map()
 # ────────────────────────────────────────────────────────────────────────────
 
-_WEEKEND_CLOSURE_TEXT = (
-    "🔴 ALL MARKETS CLOSED — Weekend &nbsp;·&nbsp; "
-    "Reopening Monday: Tokyo 02:00 · Shanghai 03:30 · London/Frankfurt 09:00 · New York 15:30 (Italian time)"
-)
+# Riapertura del lunedì (ora italiana). Prima era un testo FISSO: il 12/10/2026 diceva
+# "Reopening Monday: Tokyo 02:00" con Tokyo chiusa per festività. Ora le borse chiuse il
+# lunedì (righe CLOSED di Forex Factory) vengono tolte dall'elenco e indicate a parte.
+_REOPEN_SLOTS = [
+    ("Tokyo",     "02:00", ("Tokyo Stock Exchange (TSE)",)),
+    ("Shanghai",  "03:30", ("Chinese Markets (Shanghai, Shenzhen)",)),
+    ("London",    "09:00", ("London Stock Exchange (LSE)",)),
+    ("Frankfurt", "09:00", ("Frankfurt Stock Exchange (XETRA)", "European Markets")),
+    ("New York",  "15:30", ("US Markets (NYSE, Nasdaq)",)),
+]
 
 
-def _build_weekend_event(date_obj) -> dict:
+def _weekend_text(closed_monday=frozenset(), monday_known=True):
+    """Testo della riga weekend. closed_monday = borse chiuse il lunedì (nomi di _HOLIDAY_MARKETS);
+    monday_known=False se FF non ha ancora pubblicato il lunedì (non si indovina)."""
+    open_, shut = [], []
+    for name, t, markets in _REOPEN_SLOTS:
+        (shut if any(m in closed_monday for m in markets) else open_).append((name, t))
+    names = [n for n, _ in open_]
+    parts = []
+    for name, t in open_:
+        if name == "Frankfurt" and "London" in names:
+            continue                                   # già unito a London
+        if name == "London" and "Frankfurt" in names:
+            parts.append(f"London/Frankfurt {t}")
+        else:
+            parts.append(f"{name} {t}")
+    text = "🔴 ALL MARKETS CLOSED — Weekend &nbsp;·&nbsp; "
+    text += ("Reopening Monday: " + " · ".join(parts) + " (Italian time)") if parts \
+            else "No major market reopens Monday"
+    if shut:
+        text += " &nbsp;·&nbsp; Closed Monday: " + ", ".join(n for n, _ in shut) + " (holiday)"
+    if not monday_known:
+        text += " &nbsp;·&nbsp; (Monday holidays not yet published)"
+    return text
+
+
+def _monday_closures(datasets, monday):
+    """(borse chiuse il lunedì, dato_disponibile) dai feed FF già scaricati.
+    Si analizzano solo le festività: nessuna richiesta in più (niente pagina FF)."""
+    closed, known = set(), False
+    for data in datasets:
+        holidays = [e for e in data if (e.get("impact") or "").lower() == "holiday"]
+        try:
+            if any(datetime.fromisoformat(e["date"]).astimezone(ROME_TZ).date() >= monday
+                   for e in data if e.get("date")):
+                known = True
+            for evs in _parse_ff_json(holidays, {monday}).values():
+                closed.update(ev["market"] for ev in evs if ev.get("impact") == "CLOSED" and ev.get("market"))
+        except Exception:
+            continue
+    return closed, known
+
+
+def _build_weekend_event(date_obj, text=None) -> dict:
     """Crea una riga 'mercati chiusi - weekend' per sabato o domenica."""
-    import calendar
-    day_name = calendar.day_name[date_obj.weekday()]  # 'Saturday' / 'Sunday'
-    label = "Saturday" if day_name == "Saturday" else "Sunday"
     return {
         "time": "All day",
         "currency": "—",
         "flag": "",
-        "event": _WEEKEND_CLOSURE_TEXT,
+        "event": text or _weekend_text(),
         "impact": "CLOSED",
         "forecast": "—",
         "previous": "—",
@@ -519,12 +582,32 @@ def _parse_ff_json(data, target_dates):
                     hours_txt = f"Normal hours: {hours[0]}–{hours[1]} (Italian time)"
                 else:
                     hours_txt = "Hours not available"
+                bank_only = _us_bank_only_holiday(event_dt_for_date.date()) if currency == "USD" else None
+                if bank_only:
+                    # Banche/Fed/Treasury chiusi, ma la borsa USA tratta: riga gialla, non rossa.
+                    us_hrs = _MARKET_HOURS_IT["US Markets (NYSE, Nasdaq)"]
+                    result[day_key].append({
+                        "time": "All day",
+                        "currency": currency,
+                        "flag": flag,
+                        "event": (f"🟡 US Bond Market &amp; Banks CLOSED — {bank_only} &nbsp;·&nbsp; "
+                                  f"NYSE/Nasdaq OPEN {us_hrs[0]}–{us_hrs[1]} (Italian time)"),
+                        "impact": "PARTIAL",
+                        "market": None,          # nessuna BORSA chiusa
+                        "forecast": "—",
+                        "previous": "—",
+                        "actual": "—",
+                        "actual_overdue": False,
+                        "source": "Forex Factory",
+                    })
+                    continue
                 result[day_key].append({
                     "time": "All day",
                     "currency": currency,
                     "flag": flag,
                     "event": f"🔴 {market} CLOSED — {event.get('title', 'Bank Holiday')} · {hours_txt}",
                     "impact": "CLOSED",
+                    "market": market,            # usato dalla riga weekend ("Closed Monday: ...")
                     "forecast": "—",
                     "previous": "—",
                     "actual": "—",
@@ -720,6 +803,7 @@ def fetch_forex_factory_multiday(days=3):
                 pass
         return None
 
+    datasets = []
     for url in [
         "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
         "https://nfs.faireconomy.media/ff_calendar_nextweek.json",
@@ -727,6 +811,7 @@ def fetch_forex_factory_multiday(days=3):
         data = _fetch_ff_with_retry(url)
         if data is None:
             continue
+        datasets.append(data)
         try:
             partial = _parse_ff_json(data, target_dates)
             for day_key, events in partial.items():
@@ -740,6 +825,19 @@ def fetch_forex_factory_multiday(days=3):
                 result[day_key].sort(key=lambda x: x["time"])
         except Exception as e:
             print(f"[Calendar] Parsing error {url}: {e}")
+
+    # Riga weekend: ricostruita con le festività REALI del lunedì successivo.
+    for i in range(days):
+        d = today_rome.date().__class__.fromordinal(today_rome.date().toordinal() + i)
+        if d.weekday() not in (5, 6):
+            continue
+        day_key = datetime(d.year, d.month, d.day, tzinfo=ROME_TZ).strftime("%A %d %B")
+        monday = d.__class__.fromordinal(d.toordinal() + (7 - d.weekday()))
+        closed, known = _monday_closures(datasets, monday)
+        text = _weekend_text(closed, known)
+        for ev in result.get(day_key, []):
+            if ev.get("event", "").startswith("🔴 ALL MARKETS CLOSED — Weekend"):
+                ev["event"] = text
 
     # Mostra TUTTI i giorni della finestra, anche quelli senza eventi rilevanti (lista vuota):
     # così l'utente distingue "nessun evento importante oggi" da un possibile bug/dato mancante.

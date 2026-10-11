@@ -46,7 +46,8 @@ def _render_calendar_table(events):
         else:
             actual_cell = f'<span class="{actual_cls}">{actual}</span>'
         is_holiday = ev.get('impact') == 'CLOSED'
-        is_early   = ev.get('impact') == 'EARLY'
+        # PARTIAL = solo banche/bond USA chiusi, borsa aperta (Columbus/Veterans Day): stile giallo
+        is_early   = ev.get('impact') in ('EARLY', 'PARTIAL')
         impact_val = ev.get('impact', 'HIGH')
         if impact_val == 'MED':
             impact_badge_cls = 'impact-med'
@@ -54,7 +55,7 @@ def _render_calendar_table(events):
             impact_badge_cls = 'impact-wl'
         elif impact_val == 'CLOSED':
             impact_badge_cls = 'impact-chiuso'
-        elif impact_val == 'EARLY':
+        elif impact_val in ('EARLY', 'PARTIAL'):
             impact_badge_cls = 'impact-early'
         else:
             impact_badge_cls = ''
