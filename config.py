@@ -83,10 +83,11 @@ CRYPTO_ASSETS = {
     "SOL": "solana",
 }
 
+# Ordine = ordine delle card: S&P 500 · Nasdaq · Dow, IDENTICO alla riga dei futures sotto.
 US_INDICES = {
     "S&P 500": "^GSPC",
-    "Dow Jones": "^DJI",
     "Nasdaq": "^IXIC",
+    "Dow Jones": "^DJI",
     "VIX": "^VIX",
 }
 

@@ -651,7 +651,6 @@ def render_asia(asia_data):
         return "<p class='no-data'>Asia data not available.</p>"
 
     analysis = asia_data.pop("_analysis", "") if isinstance(asia_data, dict) else ""
-    crypto_asia = asia_data.pop("_crypto_asia", {}) if isinstance(asia_data, dict) else {}
     analysis_html = f'<div class="analysis-box"><p>{analysis}</p></div>' if analysis else ""
 
     # Indices grid
@@ -668,30 +667,9 @@ def render_asia(asia_data):
         </div>"""
     cards += "</div>"
 
-    # Crypto during Asia session
-    crypto_html = ""
-    if crypto_asia:
-        session_label = next(iter(crypto_asia.values()), {}).get("session_label", "00:00-08:00 UTC")
-        crypto_html = f'<div class="subsection-title" style="margin-top:18px">Crypto — Asian Session ({session_label})</div>'
-        crypto_html += '<div class="assets-grid">'
-        for sym in ["BTC", "ETH", "SOL"]:
-            d = crypto_asia.get(sym)
-            if not d:
-                continue
-            direction = d.get("direction", "neutral")
-            crypto_html += f"""
-            <div class="asset-card {cc(direction)}-border">
-                <div class="asset-name">{sym}</div>
-                <div class="asset-price">${d.get('close', 0):,.2f}</div>
-                <div class="asset-change {cc(direction)}">{arrow(direction)} {d.get('pct_fmt','N/A')}</div>
-                <div class="asset-extra">H: ${d.get('high',0):,.2f} &nbsp; L: ${d.get('low',0):,.2f}</div>
-            </div>"""
-        crypto_html += "</div>"
-
     # Restore keys
     asia_data["_analysis"] = analysis
-    asia_data["_crypto_asia"] = crypto_asia
-    return analysis_html + cards + crypto_html
+    return analysis_html + cards
 
 
 # ─────────────────────────────────────────────────────────────
@@ -963,8 +941,8 @@ def render_sector_rotation(sr_data):
 # ─────────────────────────────────────────────────────────────
 
 def render_overnight_recap(data):
-    # Basato sulla finestra FISSA 22:00→ora (data['overnight']), non più su 'vs chiusura'.
-    # Rates esclusi (cash Treasury non trada di notte). I FATTI + sintesi descrittiva.
+    # Finestra FISSA dalla chiusura NYSE (16:00 ET) → ora (data['overnight']). Rates = futures
+    # 2Y/10Y in bp di rendimento (il cash Treasury non tratta di notte). FATTI + sintesi descrittiva.
     ov = data.get("overnight", {}) or {}
 
     def chip(label, change, direction):
@@ -1336,7 +1314,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
   <div class="section-header">
     <span class="section-icon">🌍</span>
     <span class="section-title">Overnight Cross-Asset Recap</span>
-    <span class="section-sub">Fixed window since prior US close (~22:00 Rome) → now · intraday</span>
+    <span class="section-sub">Fixed window since prior US close → now · intraday</span>
   </div>
   <div class="section-body">{overnight_html}</div>
 </div>''' if overnight_html else ''}

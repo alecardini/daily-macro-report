@@ -494,7 +494,8 @@ def get_overnight_moves():
     Movimenti overnight cross-asset su finestra FISSA: 22:00 (ieri) Rome → ora.
     'Cosa è successo mentre dormivi' (US close → sessione asiatica → pre-market EU).
     Intraday via yf.download batchato (1 call, con retry) + Binance klines per crypto.
-    RATES ESCLUSI (il cash Treasury non trada di notte — scelta utente).
+    Rates: il cash Treasury non tratta di notte → si usano i FUTURES (Globex ~23h) sul 2Y e
+    sul 10Y, convertiti in bp di rendimento.
     """
     print("[MarketData] Fetching overnight cross-asset moves...")
     ROME = pytz.timezone("Europe/Rome")
@@ -512,8 +513,11 @@ def get_overnight_moves():
 
     groups = {
         "Equity Futures": [("ES=F", "S&P"), ("NQ=F", "Nasdaq"), ("YM=F", "Dow")],
-        "Rates":          [("ZN=F", "10Y")],   # 10Y T-Note future (Globex ~23h) → mostrato in bp di RENDIMENTO
-        "FX":             [("USDJPY=X", "USD/JPY"), ("EURUSD=X", "EUR/USD"),
+        # T-Note futures (Globex ~23h) → mostrati in bp di RENDIMENTO. 2Y = il tratto più sensibile
+        # alle attese sulla Fed; insieme al 10Y fa vedere anche se la curva si è irripidita/appiattita.
+        "Rates":          [("ZT=F", "2Y"), ("ZN=F", "10Y")],
+        # DXY (indice ICE del dollaro): è una VALUTA, quindi va nel gruppo FX, non nelle commodities.
+        "FX":             [("DX-Y.NYB", "DXY"), ("USDJPY=X", "USD/JPY"), ("EURUSD=X", "EUR/USD"),
                            ("GBPUSD=X", "GBP/USD"), ("USDCNY=X", "USD/CNY")],
         "Commodities":    [("GC=F", "Gold"), ("CL=F", "WTI")],
     }
@@ -552,12 +556,13 @@ def get_overnight_moves():
         return {"name": short, "pct_fmt": f"{pct:+.2f}%",
                 "direction": "up" if pct > 0 else "down" if pct < 0 else "neutral"}
 
-    # Il future ZN si muove INVERSO al rendimento: converto il % di prezzo in bp di yield.
-    # %ΔPrice ≈ -Dmod × Δy  →  Δy(bp) ≈ -%ΔPrice × 100 / Dmod. Dmod ≈ 6.3 (on-the-run 10Y).
-    _TSY_DUR = 6.3
+    # I future ZT/ZN si muovono INVERSO al rendimento: converto il % di prezzo in bp di yield.
+    # %ΔPrice ≈ -Dmod × Δy  →  Δy(bp) ≈ -%ΔPrice × 100 / Dmod.
+    # Dmod ≈ 1.9 per il 2Y (ZT), ≈ 6.3 per il 10Y (ZN): durata del titolo consegnabile tipico.
+    _TSY_DUR = {"2Y": 1.9, "10Y": 6.3}
     def _rate_item(short, then, cur):
         price_pct = (cur - then) / then * 100
-        bp = -price_pct * 100 / _TSY_DUR
+        bp = -price_pct * 100 / _TSY_DUR[short]
         bp_r = round(bp)
         fmt = "0 bp" if bp_r == 0 else f"{bp_r:+d} bp"   # evita il brutto "-0 bp"
         return {"name": short, "pct_fmt": fmt,

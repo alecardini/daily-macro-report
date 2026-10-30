@@ -607,81 +607,12 @@ ASIA_INDICES = {
 }
 
 
-def _get_crypto_asia_performance():
-    """
-    Fetch BTC/ETH/SOL performance during the last Asia session (00:00-08:00 UTC).
-    Uses Binance public kline API (no key needed).
-    Returns dict: { "BTC": {open, close, pct, direction, ...}, ... }
-    """
-    from datetime import timezone as tz
-    import math
-
-    now_utc = datetime.now(tz.utc)
-    # Asia session: 00:00 UTC to 08:00 UTC today
-    asia_open_utc  = now_utc.replace(hour=0,  minute=0, second=0, microsecond=0)
-    asia_close_utc = now_utc.replace(hour=8,  minute=0, second=0, microsecond=0)
-
-    # If current time is before 08:00 UTC, use previous day's Asia session
-    if now_utc < asia_close_utc:
-        from datetime import timedelta
-        asia_open_utc  -= timedelta(days=1)
-        asia_close_utc -= timedelta(days=1)
-
-    start_ms = int(asia_open_utc.timestamp() * 1000)
-    end_ms   = int(asia_close_utc.timestamp() * 1000)
-
-    result = {}
-    symbols = {"BTC": "BTCUSDT", "ETH": "ETHUSDT", "SOL": "SOLUSDT"}
-
-    for sym, pair in symbols.items():
-        try:
-            resp = requests.get(
-                "https://api.binance.com/api/v3/klines",
-                params={
-                    "symbol": pair,
-                    "interval": "1h",
-                    "startTime": start_ms,
-                    "endTime": end_ms,
-                    "limit": 9,
-                },
-                timeout=10,
-            )
-            resp.raise_for_status()
-            candles = resp.json()
-            if not candles:
-                continue
-
-            open_price  = float(candles[0][1])   # open of first candle
-            close_price = float(candles[-1][4])  # close of last candle
-            high_price  = max(float(c[2]) for c in candles)
-            low_price   = min(float(c[3]) for c in candles)
-
-            if open_price <= 0:
-                continue
-
-            pct = (close_price - open_price) / open_price * 100
-            direction = "up" if pct > 0 else "down" if pct < 0 else "neutral"
-
-            result[sym] = {
-                "open":  open_price,
-                "close": close_price,
-                "high":  high_price,
-                "low":   low_price,
-                "pct":   pct,
-                "pct_fmt": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
-                "direction": direction,
-                "session_label": f"{asia_open_utc.strftime('%H:%M')}-{asia_close_utc.strftime('%H:%M')} UTC",
-            }
-        except Exception:
-            continue
-
-    return result
-
-
 def get_asia_session():
     """
-    Fetch Asian market indices performance + BTC/ETH/SOL during Asia hours.
-    Includes a contextual analysis text.
+    Fetch Asian market indices performance + contextual analysis text.
+    Crypto RIMOSSE il 30/10/2026 (scelta utente): ripetevano l'Overnight Cross-Asset Recap,
+    che copre già la notte (dalla chiusura USA a ora) con una finestra più completa — due
+    numeri diversi per "BTC stanotte" creavano solo confusione.
     """
     print("[Extras] Fetching Asia session data...")
     results = {}
@@ -719,9 +650,6 @@ def get_asia_session():
         except Exception:
             results[name] = {"price_fmt": "N/A", "pct_fmt": "N/A", "direction": "neutral"}
 
-    # Crypto performance during Asia session
-    results["_crypto_asia"] = _get_crypto_asia_performance()
-
     # Generate analysis (indices)
     valid = {k: v for k, v in results.items() if isinstance(v, dict) and v.get("pct") is not None}
     if valid:
@@ -744,17 +672,6 @@ def get_asia_session():
             parts.append("Asia weakness = possible pressure on European/US open.")
         elif avg_pct > 1.0:
             parts.append("Asia strength = support for European/US open.")
-
-        # Add crypto context to analysis
-        crypto_asia = results.get("_crypto_asia", {})
-        if crypto_asia:
-            c_parts = []
-            for sym in ["BTC", "ETH", "SOL"]:
-                d = crypto_asia.get(sym)
-                if d:
-                    c_parts.append(f"{sym} {d['pct_fmt']}")
-            if c_parts:
-                parts.append(f"Crypto during the Asian session: {', '.join(c_parts)}.")
 
         results["_analysis"] = " ".join(parts)
     else:
