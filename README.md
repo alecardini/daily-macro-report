@@ -4,16 +4,16 @@ A Python tool that generates a single self-contained HTML "morning brief" aggreg
 
 ## Overview
 
-An active trader starts the day by manually checking a dozen dashboards: rates, equity futures, crypto flows, the economic calendar, overnight news. This tool automates that. One script pulls from roughly fifteen sources in parallel and renders a single static HTML page, produced fresh each morning in about a minute. The output is read-only and needs no server — you just open the file.
+An active trader starts the day by manually checking a dozen dashboards: rates, equity futures, crypto flows, the economic calendar, overnight news. This tool automates that. One script pulls from roughly fifteen sources in parallel and renders a single static HTML page, produced fresh each morning in a few minutes. The output is read-only and needs no server — you just open the file.
 
 ## Features
 
 - **Overnight cross-asset recap** — moves since the prior US close (equity futures, 2Y and 10Y yields via Treasury futures, FX including DXY, commodities, crypto), with a one-line synthesis.
-- **Economic calendar** — three-day high-impact events in local time, with released actuals for the key US prints (NFP, CPI/Core CPI, PCE, retail sales, jobless claims, Fed decision) pulled from FRED.
+- **Economic calendar** — three-day high-impact events in Rome time (DST-aware), with released actuals for every currency, revisions to the previous print, "tentative" flags when a release time isn't confirmed, and market holidays / early closes (including US bank-only holidays when stocks still trade).
 - **Rates & credit** — full Treasury curve, 2s10s / 3m10y spreads, real yield and breakeven, and HY/IG credit spreads shown as a percentile versus both full history and the current five-year regime.
 - **Rate expectations** — per-meeting hold / hike / cut probabilities for the next four FOMC meetings, derived from 30-day Fed Funds futures (ZQ) with the CME FedWatch methodology.
 - **Crypto** — BTC/ETH/SOL prices and dominance, spot-ETF flows, and aggregated multi-exchange funding, open interest and 24h liquidations.
-- **Liquidity & positioning** — stablecoin supply and net flow as a dry-powder proxy, plus Deribit put/call ratios and implied volatility (DVOL).
+- **Liquidity & positioning** — stablecoin supply and 7/30/90-day net flows as a dry-powder proxy, each ranked as a percentile versus both full history and the last three years, plus Deribit put/call ratios and implied volatility (DVOL).
 - **Equities** — US indices and pre-market futures, the Asian session, sector rotation, and an earnings calendar covering large caps and a crypto-proxy watchlist.
 - **Sentiment** — crypto and equity Fear & Greed, the AAII survey, and VIX.
 - **News** — breaking, central-bank, crypto, oil and AI feeds, de-duplicated and impact-ranked, each with a short, strictly descriptive LLM-generated summary.
