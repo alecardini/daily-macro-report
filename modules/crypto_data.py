@@ -911,21 +911,100 @@ def _save_stable_cache(data):
     except Exception:
         pass
 
-def _stable_label(pct30):
-    """Soglie data-driven dalla distribuzione netflow 30g ultimi 12 mesi (DefiLlama).
-    La supply ha drift strutturale ~+1.3%/mese, quindi il neutro NON è zero."""
-    if pct30 < -0.5:
-        return "Liquidity Contracting", "negative"   # quintile basso → headwind
-    elif pct30 <= 5.0:
-        return "Normal", "neutral"                     # in linea col drift
-    else:
-        return "Liquidity Expanding", "positive"       # quintile alto → tailwind
+# ── Netflow stablecoin: percentili ───────────────────────────────────────────────────
+# Per ogni finestra (7/30/90 giorni) si mostrano DUE percentili della variazione di oggi:
+#   • (all) vs tutta la storia DefiLlama (dal 2017);
+#   • (3y)  vs gli ultimi 3 anni.
+# Servono entrambi perché la storia mescola due regimi incompatibili: iper-crescita 2019-21
+# (variazione mediana 30g +12/+18%, 90g +50/+79%) e regime maturo dal 2022 (~0-3%). Contro
+# tutta la storia i valori di oggi risultano più "bassi" di quanto siano nel regime attuale.
+_PCTILE_LOOKBACK_DAYS = 1095
+# ZONA ESTREMA (regola dell'utente, 30/10/2026): la card si colora se ALMENO UNO dei due
+# percentili è nel decile estremo — rosso ≤10°, verde ≥90°. Altrimenti neutra.
+_EXTREME_LOW, _EXTREME_HIGH = 10, 90
+# Intervallo di incertezza (90%) del percentile 3y con BLOCK BOOTSTRAP, blocchi lunghi quanto
+# la finestra: le variazioni a n giorni calcolate giorno per giorno si sovrappongono e NON sono
+# osservazioni indipendenti (in 3 anni: ~156 blocchi da 7g, ~36 da 30g, ~12 da 90g). Se
+# l'intervallo è più largo di questa soglia il percentile 3y è marcato "low conf."
+# (informativo: NON cambia il colore).
+_PCTILE_LOW_CONF_WIDTH = 20
+
+
+def _ordinal(n):
+    n = int(round(n))
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def _changes(series, n, start=0):
+    """Variazioni % a n giorni, da `start` in poi (giorno per giorno)."""
+    return [(series[i] - series[i - n]) / series[i - n] * 100
+            for i in range(max(n, start), len(series)) if series[i - n] > 0]
+
+
+def _rank(xs, v):
+    return sum(1 for x in xs if x < v) / len(xs) * 100
+
+
+def _netflow_pctile_3y(series, n, iters=500):
+    """(percentile, lo, hi) della variazione a n giorni di oggi vs gli ultimi 3 anni.
+    lo/hi = intervallo 90% da block bootstrap (seed fisso → risultato riproducibile)."""
+    import random
+    ch = _changes(series, n, start=len(series) - _PCTILE_LOOKBACK_DAYS)
+    if len(ch) < 2 * n:
+        return None, None, None
+    cur = ch[-1]
+    rng, sims = random.Random(42), []
+    for _ in range(iters):
+        bs = []
+        while len(bs) < len(ch):
+            j = rng.randrange(0, len(ch) - n)
+            bs.extend(ch[j:j + n])
+        sims.append(_rank(bs[:len(ch)], cur))
+    sims.sort()
+    return _rank(ch, cur), sims[int(0.05 * iters)], sims[int(0.95 * iters) - 1]
+
+
+def _netflow_window(series, n):
+    """Una card netflow a n giorni: variazione, percentili (all + 3y), colore ed etichetta."""
+    cur, past = series[-1], series[-(n + 1)] if len(series) > n else series[0]
+    full = _changes(series, n)
+    p_all = _rank(full, full[-1]) if full else None
+    p_3y, lo, hi = _netflow_pctile_3y(series, n)
+
+    ps = [p for p in (p_all, p_3y) if p is not None]
+    low  = any(p <= _EXTREME_LOW for p in ps)
+    high = any(p >= _EXTREME_HIGH for p in ps)
+    if low and not high:
+        direction, label = "negative", "Liquidity Contracting"
+    elif high and not low:
+        direction, label = "positive", "Liquidity Expanding"
+    else:                                   # nessun estremo (o segnali opposti: caso raro)
+        direction, label = "neutral", "Normal"
+
+    parts = []
+    if p_all is not None:
+        parts.append(f"{_ordinal(p_all)} pct (all)")
+    if p_3y is not None:
+        parts.append(f"{_ordinal(p_3y)} pct (3y)")
+        if hi - lo > _PCTILE_LOW_CONF_WIDTH:
+            parts.append("low conf.")
+    return {
+        "pct_fmt":    f"{(cur - past) / past * 100:+.2f}%" if past else "—",
+        "abs_fmt":    f"${(cur - past) / 1e9:+.1f}B",
+        "dir":        direction,
+        "label":      label,
+        "pctile_fmt": " · ".join(parts),
+        "range":      (f"3y percentile, 90% uncertainty range: {_ordinal(lo)}–{_ordinal(hi)}"
+                       if p_3y is not None else ""),
+    }
+
 
 def get_stablecoin_liquidity():
     """
-    Total stablecoin supply (USDT+USDC+...) + 7d/30d netflows da DefiLlama.
+    Total stablecoin supply (USDT+USDC+...) + 7d/30d/90d netflows da DefiLlama.
     Proxy della liquidità / dry powder che entra o esce dal sistema crypto.
-    Tier A, no key. Cache 6h + fallback stale (max 24h). Percentile netflow 30g vs storia.
+    Tier A, no key. Cache 6h + fallback stale (max 24h). Percentili 7/30/90g vs storia intera e ultimi 3 anni.
     """
     cached, age = _load_stable_cache()
     try:
@@ -940,16 +1019,7 @@ def get_stablecoin_liquidity():
 
         series = [tot(x) for x in data if tot(x) > 0]
         cur = series[-1]
-        d7  = series[-8]  if len(series) >= 8  else series[0]
-        d30 = series[-31] if len(series) >= 31 else series[0]
-        nf7_pct  = (cur - d7)  / d7  * 100 if d7  else 0
-        nf30_pct = (cur - d30) / d30 * 100 if d30 else 0
-
-        # percentile del netflow 30g corrente vs tutta la storia DefiLlama
-        hist30 = [(series[i] - series[i-30]) / series[i-30] * 100
-                  for i in range(30, len(series)) if series[i-30] > 0]
-        pctile = sum(1 for v in hist30 if v < nf30_pct) / len(hist30) * 100 if hist30 else None
-        label, direction = _stable_label(nf30_pct)
+        windows = {n: _netflow_window(series, n) for n in (7, 30, 90)}
 
         # breakdown top-3 stablecoin
         breakdown = []
@@ -963,14 +1033,7 @@ def get_stablecoin_liquidity():
 
         result = {
             "total_fmt":    f"${cur/1e9:.1f}B",
-            "nf7_pct_fmt":  f"{nf7_pct:+.2f}%",
-            "nf7_abs_fmt":  f"${(cur-d7)/1e9:+.1f}B",
-            "nf7_dir":      "positive" if nf7_pct > 0 else "negative" if nf7_pct < 0 else "neutral",
-            "nf30_pct_fmt": f"{nf30_pct:+.2f}%",
-            "nf30_abs_fmt": f"${(cur-d30)/1e9:+.1f}B",
-            "nf30_dir":     direction,
-            "pctile_fmt":   f"{pctile:.0f}th pctile" if pctile is not None else "",
-            "label":        label,
+            **{f"nf{n}_{k}": v for n, w in windows.items() for k, v in w.items()},
             "breakdown":    breakdown,
             "source":       "DefiLlama",
         }

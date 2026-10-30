@@ -702,6 +702,18 @@ def render_stablecoin_liquidity(d):
     if not d or d.get("total_fmt") in (None, "N/A"):
         return "<p class='no-data'>Stablecoin data not available.</p>"
     bd = " · ".join(f"{b['symbol']} {b['cap_fmt']}" for b in d.get("breakdown", []))
+
+    def _flow_card(n):
+        # Colore = almeno uno dei due percentili (all / 3y) nel decile estremo (≤10° / ≥90°)
+        dir_ = d.get(f"nf{n}_dir", "neutral")
+        return f"""
+        <div class="yield-card">
+            <div class="yield-cat">Flow</div>
+            <div class="yield-name">Netflow {n}d</div>
+            <div class="yield-val {dir_}">{d.get(f'nf{n}_pct_fmt', '—')}</div>
+            <div class="yield-note {dir_}" title="{d.get(f'nf{n}_range', '')}">{d.get(f'nf{n}_abs_fmt', '')}<br>{d.get(f'nf{n}_pctile_fmt', '')}<br>{d.get(f'nf{n}_label', '')}</div>
+        </div>"""
+
     return f"""
     <div class="yields-grid">
         <div class="yield-card">
@@ -710,23 +722,18 @@ def render_stablecoin_liquidity(d):
             <div class="yield-val neutral">{d.get('total_fmt','N/A')}</div>
             <div class="yield-change">{bd}</div>
         </div>
-        <div class="yield-card">
-            <div class="yield-cat">Flow</div>
-            <div class="yield-name">Netflow 7d</div>
-            <div class="yield-val {d.get('nf7_dir','neutral')}">{d.get('nf7_pct_fmt','—')}</div>
-            <div class="yield-change">{d.get('nf7_abs_fmt','')}</div>
-        </div>
-        <div class="yield-card">
-            <div class="yield-cat">Flow</div>
-            <div class="yield-name">Netflow 30d</div>
-            <div class="yield-val {d.get('nf30_dir','neutral')}">{d.get('nf30_pct_fmt','—')}</div>
-            <div class="yield-note {d.get('nf30_dir','neutral')}">{d.get('nf30_abs_fmt','')} · {d.get('pctile_fmt','')} · {d.get('label','')}</div>
-        </div>
+        {_flow_card(7)}
+        {_flow_card(30)}
+        {_flow_card(90)}
     </div>
     <div class="pc-note" style="margin-top:10px">
         <strong>How to read:</strong> Total stablecoin supply is the "dry powder" in the crypto system.
         Expanding = fiat entering (structural tailwind); contracting = liquidity leaving (headwind).
-        Slow structural signal — watch the trend, not a single day. Supply normally drifts up ~+1–3%/month, so flat-to-negative is already below trend. Percentile is vs full DefiLlama history.
+        Slow structural signal — watch the trend, not a single day. Supply normally drifts up ~+1–3%/month, so flat-to-negative is already below trend.
+        7d = noisiest (a single large mint/burn moves it); 30d = recent flow; 90d = persistence (a quarter-long trend, less likely to be noise). The strongest read is when several windows are extreme together.
+        Each window shows two percentiles: <em>(all)</em> vs the full DefiLlama history since 2017, <em>(3y)</em> vs the last 3 years — the 2019–21 hyper-growth regime makes today's flows rank lower on the full history.
+        A card turns red/green when at least one percentile is in the extreme decile (≤10th / ≥90th).
+        "low conf." = the 3y percentile has a wide 90% uncertainty range (few independent periods, e.g. only ~12 quarters in 3 years) — hover for the range.
     </div>"""
 
 
