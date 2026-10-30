@@ -172,7 +172,7 @@ def fetch_forex_factory_calendar():
             except Exception:
                 continue
 
-        events.sort(key=lambda x: x["time"])
+        events.sort(key=lambda x: x.get("sort_time") or x["time"])
         print(f"[Calendar] Forex Factory: {len(events)} high-impact events today")
         return events
 
@@ -195,25 +195,43 @@ _HOLIDAY_MARKETS = {
     "KRW": "Korea Exchange (KRX)",
 }
 
-# Orari di apertura dei principali mercati (ora italiana, ora legale CEST = UTC+2)
-# Formato: (apertura, chiusura)
-_MARKET_HOURS_IT = {
-    "Tokyo Stock Exchange (TSE)":             ("02:00", "08:30"),
-    "Korea Exchange (KRX)":                    ("02:00", "08:30"),  # KRX 09:00–15:30 KST (UTC+9) = 02:00–08:30 CEST
-    "Chinese Markets (Shanghai, Shenzhen)":   ("03:30", "10:00"),
-    "Hong Kong Stock Exchange (HKEX)":        ("03:30", "10:00"),
-    "Australian Securities Exchange (ASX)":   ("01:00", "07:00"),
-    "New Zealand Exchange (NZX)":             ("22:00", "06:30"),  # opens previous evening
-    "London Stock Exchange (LSE)":            ("09:00", "17:30"),
-    "Frankfurt Stock Exchange (XETRA)":       ("09:00", "17:30"),
-    "Paris Stock Exchange (Euronext Paris)":  ("09:00", "17:30"),
-    "Milan Stock Exchange (Euronext Milan)":  ("09:00", "17:30"),
-    "Madrid Stock Exchange (BME)":            ("09:00", "17:30"),
-    "Swiss Exchange (SIX)":                  ("09:00", "17:30"),
-    "European Markets":                       ("09:00", "17:30"),
-    "US Markets (NYSE, Nasdaq)":              ("15:30", "22:00"),
-    "Toronto Stock Exchange (TSX)":           ("15:30", "22:00"),
+# Orari di negoziazione in ORA LOCALE di ogni borsa: (fuso, apertura, chiusura).
+# Prima erano scritti a mano in ora italiana ESTIVA → d'inverno sbagliati di 1h per l'Asia
+# (che non ha l'ora legale), di 2h per Sydney/Auckland (ora legale opposta) e nelle settimane
+# "sfasate" di marzo e ott/nov per gli USA (cambio d'ora in date diverse dall'Europa).
+# Ora si convertono in ora italiana PER IL GIORNO richiesto → sempre giusti, in ogni stagione.
+_MARKET_LOCAL_HOURS = {
+    "Tokyo Stock Exchange (TSE)":            ("Asia/Tokyo",       "09:00", "15:30"),
+    "Korea Exchange (KRX)":                  ("Asia/Seoul",       "09:00", "15:30"),
+    "Chinese Markets (Shanghai, Shenzhen)":  ("Asia/Shanghai",    "09:30", "15:00"),
+    "Hong Kong Stock Exchange (HKEX)":       ("Asia/Hong_Kong",   "09:30", "16:00"),
+    "Australian Securities Exchange (ASX)":  ("Australia/Sydney", "10:00", "16:00"),
+    "New Zealand Exchange (NZX)":            ("Pacific/Auckland", "10:00", "16:45"),  # in Italia apre la sera prima
+    "London Stock Exchange (LSE)":           ("Europe/London",    "08:00", "16:30"),
+    "Frankfurt Stock Exchange (XETRA)":      ("Europe/Berlin",    "09:00", "17:30"),
+    "Paris Stock Exchange (Euronext Paris)": ("Europe/Paris",     "09:00", "17:30"),
+    "Milan Stock Exchange (Euronext Milan)": ("Europe/Rome",      "09:00", "17:30"),
+    "Madrid Stock Exchange (BME)":           ("Europe/Madrid",    "09:00", "17:30"),
+    "Swiss Exchange (SIX)":                  ("Europe/Zurich",    "09:00", "17:30"),
+    "European Markets":                      ("Europe/Berlin",    "09:00", "17:30"),
+    "US Markets (NYSE, Nasdaq)":             ("America/New_York", "09:30", "16:00"),
+    "Toronto Stock Exchange (TSX)":          ("America/Toronto",  "09:30", "16:00"),
 }
+
+
+def _market_hours_it(market, day):
+    """(apertura, chiusura) in ora italiana per la seduta del giorno `day` (data locale
+    della borsa), oppure None se la borsa non è in tabella."""
+    spec = _MARKET_LOCAL_HOURS.get(market)
+    if not spec:
+        return None
+    tz = pytz.timezone(spec[0])
+
+    def _to_rome(hm):
+        h, m = map(int, hm.split(":"))
+        return tz.localize(datetime(day.year, day.month, day.day, h, m)).astimezone(ROME_TZ).strftime("%H:%M")
+
+    return _to_rome(spec[1]), _to_rome(spec[2])
 
 # Titoli specifici FF che indicano solo un paese EUR
 _EUR_COUNTRY_MARKETS = {
@@ -328,27 +346,34 @@ KR_MARKET_HOLIDAYS = _build_kr_holiday_map()
 # Riapertura del lunedì (ora italiana). Prima era un testo FISSO: il 12/10/2026 diceva
 # "Reopening Monday: Tokyo 02:00" con Tokyo chiusa per festività. Ora le borse chiuse il
 # lunedì (righe CLOSED di Forex Factory) vengono tolte dall'elenco e indicate a parte.
+# Gli orari di riapertura si calcolano per QUEL lunedì con _market_hours_it (prima erano
+# fissi all'ora legale: d'inverno Tokyo/Shanghai risultavano un'ora più tardi del vero).
 _REOPEN_SLOTS = [
-    ("Tokyo",     "02:00", ("Tokyo Stock Exchange (TSE)",)),
-    ("Shanghai",  "03:30", ("Chinese Markets (Shanghai, Shenzhen)",)),
-    ("London",    "09:00", ("London Stock Exchange (LSE)",)),
-    ("Frankfurt", "09:00", ("Frankfurt Stock Exchange (XETRA)", "European Markets")),
-    ("New York",  "15:30", ("US Markets (NYSE, Nasdaq)",)),
+    ("Tokyo",     "Tokyo Stock Exchange (TSE)",           ("Tokyo Stock Exchange (TSE)",)),
+    ("Shanghai",  "Chinese Markets (Shanghai, Shenzhen)", ("Chinese Markets (Shanghai, Shenzhen)",)),
+    ("London",    "London Stock Exchange (LSE)",          ("London Stock Exchange (LSE)",)),
+    ("Frankfurt", "Frankfurt Stock Exchange (XETRA)",     ("Frankfurt Stock Exchange (XETRA)", "European Markets")),
+    ("New York",  "US Markets (NYSE, Nasdaq)",            ("US Markets (NYSE, Nasdaq)",)),
 ]
 
 
-def _weekend_text(closed_monday=frozenset(), monday_known=True):
+def _next_monday(d):
+    return d.__class__.fromordinal(d.toordinal() + (7 - d.weekday()))
+
+
+def _weekend_text(monday, closed_monday=frozenset(), monday_known=True):
     """Testo della riga weekend. closed_monday = borse chiuse il lunedì (nomi di _HOLIDAY_MARKETS);
     monday_known=False se FF non ha ancora pubblicato il lunedì (non si indovina)."""
     open_, shut = [], []
-    for name, t, markets in _REOPEN_SLOTS:
+    for name, hours_key, markets in _REOPEN_SLOTS:
+        t = _market_hours_it(hours_key, monday)[0]
         (shut if any(m in closed_monday for m in markets) else open_).append((name, t))
-    names = [n for n, _ in open_]
+    times = dict(open_)
     parts = []
     for name, t in open_:
-        if name == "Frankfurt" and "London" in names:
+        if name == "Frankfurt" and times.get("London") == t:
             continue                                   # già unito a London
-        if name == "London" and "Frankfurt" in names:
+        if name == "London" and times.get("Frankfurt") == t:
             parts.append(f"London/Frankfurt {t}")
         else:
             parts.append(f"{name} {t}")
@@ -385,7 +410,7 @@ def _build_weekend_event(date_obj, text=None) -> dict:
         "time": "All day",
         "currency": "—",
         "flag": "",
-        "event": text or _weekend_text(),
+        "event": text or _weekend_text(_next_monday(date_obj)),
         "impact": "CLOSED",
         "forecast": "—",
         "previous": "—",
@@ -507,9 +532,10 @@ def _ff_page_data(day):
                 for e in d.get("events", []):
                     actual   = (e.get("actual") or "").strip()
                     revision = (e.get("revision") or "").strip()
-                    if (actual or revision) and e.get("name") and e.get("currency") and e.get("dateline"):
+                    masked   = bool(e.get("timeMasked"))     # FF non conosce l'orario ("All Day"/"Tentative")
+                    if (actual or revision or masked) and e.get("name") and e.get("currency") and e.get("dateline"):
                         out[(e["name"].strip().lower(), e["currency"], int(e["dateline"]))] = \
-                            {"actual": actual, "revision": revision}
+                            {"actual": actual, "revision": revision, "masked": masked}
         n_act = sum(1 for v in out.values() if v["actual"])
         n_rev = sum(1 for v in out.values() if v["revision"])
         print(f"[Calendar] FF page: {n_act} actuals, {n_rev} revisions (week of {monday})")
@@ -517,6 +543,28 @@ def _ff_page_data(day):
         print(f"[Calendar] FF page unavailable ({e}) — keeping 'View data' links, no revisions")
     _FF_PAGE_CACHE[monday] = out
     return out
+
+
+# ── Eventi SENZA orario confermato ("Tentative") ─────────────────────────────────────
+# Quando FF non conosce l'ora (pagina: timeLabel "All Day", timeMasked=True) il feed JSON mette
+# comunque un orario SEGNAPOSTO: il 30/10/2026 il German Prelim CPI risultava alle 08:29, uscito
+# invece alle 14:00. Ora l'ora diventa "Tentative" e, solo per eventi con orario abituale
+# VERIFICATO sui dati storici, si aggiunge "usually HH:MM".
+# Formato: (titolo FF esatto, valuta) → (fuso dell'istituto, ora locale abituale).
+_USUAL_RELEASE_TIMES = {
+    # Destatis: 10/10 rilasci preliminari nov-2025 → ott-2026 alle 14:00 ora tedesca
+    # (13:00 UTC d'inverno, 12:00 UTC d'estate — fonte: storico calendario FXStreet).
+    ("german prelim cpi m/m", "EUR"): ("Europe/Berlin", "14:00"),
+}
+
+
+def _usual_time_it(raw_title, currency, day):
+    """Orario abituale in ora italiana per l'evento, oppure None se non verificato."""
+    spec = _USUAL_RELEASE_TIMES.get((raw_title.strip().lower(), currency))
+    if not spec:
+        return None
+    h, m = map(int, spec[1].split(":"))
+    return pytz.timezone(spec[0]).localize(datetime(day.year, day.month, day.day, h, m)).astimezone(ROME_TZ)
 
 
 def _ff_page_entry(raw_title, currency, event_dt):
@@ -577,15 +625,16 @@ def _parse_ff_json(data, target_dates):
                         if keyword in title:
                             market = mkt
                             break
-                hours = _MARKET_HOURS_IT.get(market)
+                local_day = event_dt_for_date.date()      # data della festività nel paese
+                hours = _market_hours_it(market, local_day)
                 if hours:
                     hours_txt = f"Normal hours: {hours[0]}–{hours[1]} (Italian time)"
                 else:
                     hours_txt = "Hours not available"
-                bank_only = _us_bank_only_holiday(event_dt_for_date.date()) if currency == "USD" else None
+                bank_only = _us_bank_only_holiday(local_day) if currency == "USD" else None
                 if bank_only:
                     # Banche/Fed/Treasury chiusi, ma la borsa USA tratta: riga gialla, non rossa.
-                    us_hrs = _MARKET_HOURS_IT["US Markets (NYSE, Nasdaq)"]
+                    us_hrs = _market_hours_it("US Markets (NYSE, Nasdaq)", local_day)
                     result[day_key].append({
                         "time": "All day",
                         "currency": currency,
@@ -628,8 +677,6 @@ def _parse_ff_json(data, target_dates):
                 impact_label = "MED"
             actual_raw = event.get("actual", "") or ""
             now_rome = datetime.now(ROME_TZ)
-            # Flag: evento già passato ma actual ancora vuoto (FF API lag)
-            actual_overdue = (actual_raw == "") and (event_dt_rome < now_rome)
             currency = event.get("country", "—")
             flag, _ = CURRENCY_FLAGS.get(currency, ("", currency))
 
@@ -637,6 +684,22 @@ def _parse_ff_json(data, target_dates):
             renamed   = _maybe_rename_rate_event(raw_title, currency)
 
             page = _ff_page_entry(raw_title, currency, event_dt)
+
+            # Orario: se FF non lo conosce (masked) l'ora del feed è un SEGNAPOSTO → "Tentative",
+            # con l'orario abituale verificato se c'è. Lo stesso orario guida ordinamento e ritardo.
+            time_label, time_note, sort_time, due_dt = event_dt_rome.strftime("%H:%M"), "", None, event_dt_rome
+            if page.get("masked"):
+                usual = _usual_time_it(raw_title, currency, event_dt_for_date.date())
+                time_label = "Tentative"
+                if usual:
+                    time_note = f"usually {usual:%H:%M}"
+                    sort_time, due_dt = usual.strftime("%H:%M"), usual
+                else:
+                    sort_time = "24:00"                    # in fondo alla giornata
+                    due_dt = None                          # ora ignota: niente "View data" anticipato
+
+            # Flag: evento già passato ma actual ancora vuoto (FF API lag)
+            actual_overdue = (actual_raw == "") and due_dt is not None and (due_dt < now_rome)
 
             # Arricchimento actual: 1) pagina FF (tutte le valute, match esatto) → 2) FRED (solo
             # set USA mappato) → altrimenti resta il link "Vedi dato"
@@ -654,7 +717,9 @@ def _parse_ff_json(data, target_dates):
                 revision = ""
 
             result[day_key].append({
-                "time": event_dt_rome.strftime("%H:%M"),
+                "time": time_label,
+                "time_note": time_note,
+                "sort_time": sort_time,
                 "currency": currency,
                 "flag": flag,
                 "event": renamed,
@@ -671,7 +736,7 @@ def _parse_ff_json(data, target_dates):
         except Exception:
             continue
     for day in result:
-        result[day].sort(key=lambda x: x["time"])
+        result[day].sort(key=lambda x: x.get("sort_time") or x["time"])
     return result
 
 
@@ -726,7 +791,7 @@ def fetch_forex_factory_multiday(days=3):
             reason = KR_MARKET_HOLIDAYS[d]
             flag, _ = CURRENCY_FLAGS.get("KRW", ("🇰🇷", "Corea del Sud"))
             market = _HOLIDAY_MARKETS["KRW"]
-            hrs = _MARKET_HOURS_IT.get(market)
+            hrs = _market_hours_it(market, d)
             hours_txt = f"Normal hours: {hrs[0]}–{hrs[1]} (Italian time)" if hrs else "Hours not available"
             kr_ev = {
                 "time": "All day",
@@ -822,7 +887,7 @@ def fetch_forex_factory_multiday(days=3):
                 for ev in events:
                     if (ev["time"], ev["event"]) not in existing_keys:
                         result[day_key].append(ev)
-                result[day_key].sort(key=lambda x: x["time"])
+                result[day_key].sort(key=lambda x: x.get("sort_time") or x["time"])
         except Exception as e:
             print(f"[Calendar] Parsing error {url}: {e}")
 
@@ -832,9 +897,9 @@ def fetch_forex_factory_multiday(days=3):
         if d.weekday() not in (5, 6):
             continue
         day_key = datetime(d.year, d.month, d.day, tzinfo=ROME_TZ).strftime("%A %d %B")
-        monday = d.__class__.fromordinal(d.toordinal() + (7 - d.weekday()))
+        monday = _next_monday(d)
         closed, known = _monday_closures(datasets, monday)
-        text = _weekend_text(closed, known)
+        text = _weekend_text(monday, closed, known)
         for ev in result.get(day_key, []):
             if ev.get("event", "").startswith("🔴 ALL MARKETS CLOSED — Weekend"):
                 ev["event"] = text

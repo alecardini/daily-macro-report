@@ -41,6 +41,10 @@ def _render_calendar_table(events):
         rev = ev.get("revision", "")
         revision_note = (f'<div class="revision-note" title="Previous value revised by the '
                          f'statistics office">revision: {rev}</div>') if rev else ""
+        # Orario non confermato da FF ("Tentative"): sotto, se verificato, l'orario abituale.
+        tn = ev.get("time_note", "")
+        time_note = (f'<div class="revision-note" title="Time not confirmed by Forex Factory — '
+                     f'usual release time from past releases">{tn}</div>') if tn else ""
         if actual_overdue:
             actual_cell = '<a href="https://www.investing.com/economic-calendar/" target="_blank" class="actual-pending-btn" title="Data released but not yet updated by Forex Factory — click to see the value on Investing.com">🔗 View data</a>'
         else:
@@ -62,7 +66,7 @@ def _render_calendar_table(events):
         row_cls = 'holiday-row' if is_holiday else ('early-close-row' if is_early else '')
         rows += f"""
         <tr class="{row_cls}">
-            <td class="time-cell">{ev.get('time','—')}</td>
+            <td class="time-cell">{ev.get('time','—')}{time_note}</td>
             <td><span class="flag-badge">{ev.get('flag','')} {ev.get('currency','—')}</span></td>
             <td class="event-name">{ev.get('event','—')}</td>
             <td><span class="impact-badge {impact_badge_cls}">{impact_val}</span></td>
@@ -1000,6 +1004,8 @@ def generate_html(data):
     now_rome = datetime.now(ROME_TZ)
     gen_time = now_rome.strftime("%d %B %Y — %H:%M (Roma)")
     day_name = now_rome.strftime("%A")
+    # Fuso reale di Roma oggi (era scritto fisso "GMT+2": sbagliato d'inverno, quando è GMT+1)
+    rome_gmt = f"GMT{int(now_rome.utcoffset().total_seconds() // 3600):+d}"
 
     analyses = data.get("analyses", {})
     vix_data = data.get("indices", {}).get("VIX", {})
@@ -1332,7 +1338,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
   <div class="section-header">
     <span class="section-icon">📅</span>
     <span class="section-title">Economic Calendar</span>
-    <span class="section-sub">HIGH IMPACT only — Rome time (GMT+2) — Forex Factory</span>
+    <span class="section-sub">HIGH IMPACT only — Rome time ({rome_gmt}) — Forex Factory</span>
   </div>
   <div class="section-body">{cal_html}</div>
 </div>
