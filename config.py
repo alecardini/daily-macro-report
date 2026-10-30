@@ -338,6 +338,7 @@ CALENDAR_IMPACT_HIGH = [
     ("Existing Home Sales",       "USD"),   # USD → alto
     ("GDP q/y",                   "CNY"),   # China GDP → alto
     ("German Final GDP q/q",      "EUR"),   # German Final GDP q/q → alto (resta in whitelist → visibile)
+    ("German Prelim GDP q/q",     "EUR"),   # German Prelim GDP q/q → alto (FF lo dà Medium)
     ("Final GDP q/q",             "JPY"),   # Japan Final GDP q/q → alto (era WL; GBP/EUR hanno voci proprie)
     ("Final Manufacturing PMI",   "USD"),   # US Final Manufacturing PMI → alto (JPY/EUR/GBP restano MED)
     ("Retail Sales m/m",          "USD"),   # US Retail Sales (copre anche Core Retail Sales m/m) → alto
