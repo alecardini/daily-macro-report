@@ -1249,6 +1249,8 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 
 <div class="container">
 
+<!-- Ordine sezioni (scelta utente 30/10/2026): prima la NOTTE (overnight, Asia), poi agenda e
+     NOTIZIE, infine gli strumenti OPERATIVI per la giornata (sentiment, tassi, crypto, liquidità). -->
 {f'''<div class="section">
   <div class="section-header">
     <span class="section-icon">🌍</span>
@@ -1257,6 +1259,15 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
   </div>
   <div class="section-body">{overnight_html}</div>
 </div>''' if overnight_html else ''}
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-icon">🌏</span>
+    <span class="section-title">Asian Session</span>
+    <span class="section-sub">Nikkei · Hang Seng · Shanghai · CSI 300 · ASX 200 · KOSPI — Yahoo Finance</span>
+  </div>
+  <div class="section-body">{asia_html}</div>
+</div>
 
 <div class="section">
   <div class="section-header">
@@ -1296,11 +1307,47 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 
 <div class="section">
   <div class="section-header">
+    <span class="section-icon">🪙</span>
+    <span class="section-title">Crypto News — Last 24h</span>
+    <span class="section-sub">The Block · CoinDesk · Decrypt</span>
+  </div>
+  <div class="section-body">{crypto_news_html}</div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-icon">🛢️</span>
+    <span class="section-title">Oil & Energy — News Last 24h</span>
+    <span class="section-sub">WTI · Brent · OPEC · Energy Geopolitics</span>
+  </div>
+  <div class="section-body">{oil_news_html}</div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-icon">🤖</span>
+    <span class="section-title">AI & Robotics — Last 24h</span>
+    <span class="section-sub">Bloomberg Tech · CNBC Tech · BBC Tech · Guardian Tech</span>
+  </div>
+  <div class="section-body">{ai_html}</div>
+</div>
+
+<div class="section">
+  <div class="section-header">
     <span class="section-icon">🧠</span>
     <span class="section-title">Sentiment & Momentum</span>
     <span class="section-sub">Fear & Greed · AAII · VIX</span>
   </div>
   <div class="section-body">{sentiment_html}</div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-icon">📈</span>
+    <span class="section-title">US Markets & Treasury Yields</span>
+    <span class="section-sub">Yahoo Finance · FRED (Federal Reserve)</span>
+  </div>
+  <div class="section-body">{indices_html}</div>
 </div>
 
 <div class="section">
@@ -1332,57 +1379,11 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 
 <div class="section">
   <div class="section-header">
-    <span class="section-icon">🪙</span>
-    <span class="section-title">Crypto News — Last 24h</span>
-    <span class="section-sub">The Block · CoinDesk · Decrypt</span>
-  </div>
-  <div class="section-body">{crypto_news_html}</div>
-</div>
-
-<div class="section">
-  <div class="section-header">
-    <span class="section-icon">📈</span>
-    <span class="section-title">US Markets & Treasury Yields</span>
-    <span class="section-sub">Yahoo Finance · FRED (Federal Reserve)</span>
-  </div>
-  <div class="section-body">{indices_html}</div>
-</div>
-
-<div class="section">
-  <div class="section-header">
-    <span class="section-icon">🌏</span>
-    <span class="section-title">Asian Session</span>
-    <span class="section-sub">Nikkei · Hang Seng · Shanghai · CSI 300 · ASX 200 · KOSPI — Yahoo Finance</span>
-  </div>
-  <div class="section-body">{asia_html}</div>
-</div>
-
-
-<div class="section">
-  <div class="section-header">
-    <span class="section-icon">🛢️</span>
-    <span class="section-title">Oil & Energy — News Last 24h</span>
-    <span class="section-sub">WTI · Brent · OPEC · Energy Geopolitics</span>
-  </div>
-  <div class="section-body">{oil_news_html}</div>
-</div>
-
-<div class="section">
-  <div class="section-header">
     <span class="section-icon">🔄</span>
     <span class="section-title">Sector Rotation — S&P 500</span>
     <span class="section-sub">XLK · XLF · XLE · XLV · XLU · XLI · XLP · XLY · XLB · XLRE — Yahoo Finance</span>
   </div>
   <div class="section-body">{sector_html}</div>
-</div>
-
-<div class="section">
-  <div class="section-header">
-    <span class="section-icon">🤖</span>
-    <span class="section-title">AI & Robotics — Last 24h</span>
-    <span class="section-sub">Bloomberg Tech · CNBC Tech · BBC Tech · Guardian Tech</span>
-  </div>
-  <div class="section-body">{ai_html}</div>
 </div>
 
 </div>
