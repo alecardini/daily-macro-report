@@ -582,66 +582,6 @@ def render_indices(indices, futures, yields, analysis_text="", rate_exp=None):
 # ALTRI ASSET
 # ─────────────────────────────────────────────────────────────
 
-def render_other_assets(assets, gold_etf, asset_analyses=None, fx=None):
-    if asset_analyses is None:
-        asset_analyses = {}
-
-    html = ""
-    for name, data in assets.items():
-        d = data.get("direction","neutral")
-        analysis_text = asset_analyses.get(name, "")
-        analysis_html = f'<div class="analysis-box analysis-box-sm"><p>{analysis_text}</p></div>' if analysis_text else ""
-
-        # Gold ETF supplement
-        etf_supp = ""
-        if "Gold" in name and gold_etf:
-            gld = gold_etf.get("GLD (SPDR Gold)", {})
-            iau = gold_etf.get("IAU (iShares Gold)", {})
-            etf_supp = f"""
-            <div class="gold-etf-row">
-                <span class="etf-tag">GLD</span> {gld.get('pct_fmt','N/A')} | AUM {gld.get('aum','N/A')}
-                &nbsp;&nbsp;
-                <span class="etf-tag">IAU</span> {iau.get('pct_fmt','N/A')} | AUM {iau.get('aum','N/A')}
-            </div>"""
-
-        html += f"""
-        <div class="asset-row-card {cc(d)}-border">
-            <div class="arc-left">
-                <div class="arc-name">{name}</div>
-                <div class="arc-price">{data.get('price_fmt','N/A')}</div>
-                <div class="arc-change {cc(d)}">{arrow(d)} {data.get('pct_fmt','N/A')} <span class="change-abs">{data.get('change_fmt','')}</span></div>
-                {f'<div class="fallback-src">{data["fallback_note"]}</div>' if data.get("fallback_note") else ""}
-                {etf_supp}
-            </div>
-            <div class="arc-right">
-                {analysis_html}
-            </div>
-        </div>"""
-
-    # ── FX Majors ──
-    if fx:
-        fx_cards = ""
-        for name, d in fx.items():
-            dr = d.get("direction", "neutral")
-            fx_cards += f"""
-            <div class="asset-card {cc(dr)}-border">
-                <div class="asset-name">{name}</div>
-                <div class="asset-price">{d.get('price_fmt','N/A')}</div>
-                <div class="asset-change {cc(dr)}">{arrow(dr)} {d.get('pct_fmt','N/A')} <span class="change-abs">{d.get('change_fmt','')}</span></div>
-                <div class="asset-extra">{d.get('source','')}</div>
-            </div>"""
-        html += f"""
-        <div class="subsection-title" style="margin-top:16px">FX Majors</div>
-        <div class="assets-grid">{fx_cards}</div>
-        <div class="pc-note" style="margin-top:10px">
-            <strong>How to read:</strong> USD/JPY is the key pair for crypto — yen weakness (USD/JPY up) = carry trade ON = risk-on;
-            a sharp yen strengthening (USD/JPY down fast) = carry unwind = risk-off pressure on crypto.
-            EUR/USD = broad USD direction, USD/CNY up = yuan stress. DXY (above) is the aggregate USD gauge.
-        </div>"""
-
-    return html
-
-
 # ─────────────────────────────────────────────────────────────
 # ASIA SESSION
 # ─────────────────────────────────────────────────────────────
@@ -1017,7 +957,6 @@ def generate_html(data):
     stablecoin_html = _safe(render_stablecoin_liquidity, data.get("stablecoin", {}))
     indices_html  = _safe(render_indices, data.get("indices",{}), data.get("futures",{}), data.get("yields",{}), analyses.get("indices",""), data.get("rate_expectations"))
     asia_html     = _safe(render_asia, data.get("asia", {}))
-    assets_html   = _safe(render_other_assets, data.get("other_assets",{}), data.get("gold_etf",{}), analyses.get("assets",{}), data.get("fx",{}))
     oil_news_html = _safe(render_news_section, data.get("oil_news", []), "No Oil & Energy news available.", synthesis=_syn.get("oil_news",""))
     pc_html       = _safe(render_pc_ratios, data.get("pc_ratios", {}))
     sector_html   = _safe(render_sector_rotation, data.get("sector_rotation", {}))
@@ -1418,14 +1357,6 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
   <div class="section-body">{asia_html}</div>
 </div>
 
-<div class="section">
-  <div class="section-header">
-    <span class="section-icon">🪙</span>
-    <span class="section-title">Other Assets — DXY · Gold · Silver · Copper · Oil</span>
-    <span class="section-sub">Yahoo Finance · WGC</span>
-  </div>
-  <div class="section-body">{assets_html}</div>
-</div>
 
 <div class="section">
   <div class="section-header">

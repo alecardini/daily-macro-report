@@ -259,52 +259,6 @@ def analyze_us_indices(indices, futures, yields, vix_data=None):
 # OTHER ASSETS ANALYSIS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def analyze_asset(name, data):
-    """Analysis for DXY, Gold, Silver, Copper."""
-    if not data or data.get("price") is None:
-        return "Data not available."
-
-    pct = data.get("pct_change", 0) or 0
-    trend, direction = _trend_label(pct)
-    parts = []
-
-    if "DXY" in name or "Dollar" in name:
-        parts.append(f"Dollar Index showing {trend} ({data.get('pct_fmt','')}).")
-        if direction == "up":
-            parts.append("Strong dollar = pressure on commodities and EM markets, potential headwind for crypto and gold.")
-        elif direction == "down":
-            parts.append("Weak dollar = supportive for commodities, gold and USD-denominated assets.")
-        else:
-            parts.append("Dollar stable — currency neutrality in the short term.")
-
-    elif "Gold" in name:
-        parts.append(f"Gold showing {trend} ({data.get('pct_fmt','')}).")
-        if direction == "up":
-            parts.append("Gold rising = possible risk-off, increasing safe haven demand.")
-        elif direction == "down":
-            parts.append("Gold falling = possible risk-on, or dollar strength weighing.")
-        else:
-            parts.append("Gold flat — neutral market sentiment or awaiting catalysts.")
-
-    elif "Silver" in name:
-        parts.append(f"Silver showing {trend} ({data.get('pct_fmt','')}).")
-        parts.append("Silver has dual nature: safe haven + industrial metal. Monitor the Gold/Silver ratio.")
-
-    elif "Copper" in name:
-        parts.append(f"Copper showing {trend} ({data.get('pct_fmt','')}).")
-        if direction == "up":
-            parts.append("Copper rising = signal of global growth expectations (leading indicator).")
-        elif direction == "down":
-            parts.append("Copper falling = signal of expected global economic slowdown — monitor.")
-        else:
-            parts.append("Copper stable — unchanged global growth expectations.")
-
-    else:
-        parts.append(f"{name} showing {trend} ({data.get('pct_fmt','')}).")
-
-    return " ".join(parts)
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # GLOBAL SENTIMENT ANALYSIS
 # ─────────────────────────────────────────────────────────────────────────────

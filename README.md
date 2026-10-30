@@ -8,7 +8,7 @@ An active trader starts the day by manually checking a dozen dashboards: rates, 
 
 ## Features
 
-- **Overnight cross-asset recap** — moves since the prior US close (equity futures, 10Y yield, FX, commodities, crypto), with a one-line synthesis.
+- **Overnight cross-asset recap** — moves since the prior US close (equity futures, 2Y and 10Y yields via Treasury futures, FX including DXY, commodities, crypto), with a one-line synthesis.
 - **Economic calendar** — three-day high-impact events in local time, with released actuals for the key US prints (NFP, CPI/Core CPI, PCE, retail sales, jobless claims, Fed decision) pulled from FRED.
 - **Rates & credit** — full Treasury curve, 2s10s / 3m10y spreads, real yield and breakeven, and HY/IG credit spreads shown as a percentile versus both full history and the current five-year regime.
 - **Rate expectations** — per-meeting hold / hike / cut probabilities for the next four FOMC meetings, derived from 30-day Fed Funds futures (ZQ) with the CME FedWatch methodology.
@@ -21,7 +21,7 @@ An active trader starts the day by manually checking a dozen dashboards: rates, 
 
 ## Data sources
 
-All free or public-tier: FRED (Federal Reserve of St. Louis), CME Fed Funds futures (via Yahoo Finance), CoinGecko, Coinalyze, Deribit, DefiLlama, Binance, farside.co.uk, Forex Factory, Slickcharts, Yahoo Finance (with a Finnhub fallback), Frankfurter (ECB reference rates), Google Gemini (news synthesis), and RSS feeds from major financial and general-news outlets, the Fed / ECB / BoE / BoJ, and crypto publications.
+All free or public-tier: FRED (Federal Reserve of St. Louis), CME Fed Funds futures (via Yahoo Finance), CoinGecko, Coinalyze, Deribit, DefiLlama, Binance, SoSoValue (ETF flows, with farside.co.uk as fallback), Forex Factory, Slickcharts, Yahoo Finance (with a Finnhub fallback), Google Gemini (news synthesis), and RSS feeds from major financial and general-news outlets, the Fed / ECB / BoE / BoJ, and crypto publications.
 
 ## Tech stack
 

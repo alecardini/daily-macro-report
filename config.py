@@ -97,22 +97,8 @@ FUTURES = {
     "Dow Futures": "YM=F",
 }
 
-OTHER_ASSETS = {
-    "DXY (Dollar Index)": "DX-Y.NYB",
-    "Gold": "GC=F",
-    "Silver": "SI=F",
-    "Copper": "HG=F",
-    "WTI Crude Oil": "CL=F",
-    "Brent Crude Oil": "BZ=F",
-}
-
-# FX majors (Yahoo Finance primario, Frankfurter fallback keyless)
-FX_PAIRS = {
-    "USD/JPY": "USDJPY=X",   # il più rilevante: carry trade ↔ risk crypto
-    "EUR/USD": "EURUSD=X",
-    "GBP/USD": "GBPUSD=X",
-    "USD/CNY": "USDCNY=X",
-}
+# OTHER_ASSETS / FX_PAIRS / GOLD_ETFS rimossi il 30/10/2026 con la sezione "Other Assets":
+# davano livelli di prezzo senza segnale, già coperti dall'Overnight Cross-Asset Recap.
 
 SECTOR_ETFS = {
     "XLK": "Technology",
@@ -134,11 +120,6 @@ OIL_KEYWORDS = [
     "natural gas", "lng", "pipeline", "shale", "iran sanctions",
     "russia oil", "energy crisis", "oil supply", "oil demand",
 ]
-
-GOLD_ETFS = {
-    "GLD (SPDR Gold)": "GLD",
-    "IAU (iShares Gold)": "IAU",
-}
 
 # FRED Series IDs per i Treasury yield — curva completa
 TREASURY_SERIES = {

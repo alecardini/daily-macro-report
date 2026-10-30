@@ -13,7 +13,7 @@ import json
 _SNAPSHOT_PATH = "/tmp/report_snapshot.json"
 
 # |% move| oltre cui un movimento vs il run precedente è "assurdo" (per categoria)
-_ABSURD_MOVE = {"crypto": 50.0, "index": 15.0, "commodity": 25.0, "fx": 10.0}
+_ABSURD_MOVE = {"crypto": 50.0, "index": 15.0}
 
 
 def _num(x):
@@ -28,8 +28,7 @@ def _price_items(data):
     for sym, d in (data.get("crypto", {}).get("prices", {}) or {}).items():
         if isinstance(d, dict):
             yield (f"crypto:{sym}", f"{sym} price", _num(d.get("price")), "crypto")
-    for grp, cat in (("indices", "index"), ("futures", "index"),
-                     ("other_assets", "commodity"), ("fx", "fx")):
+    for grp, cat in (("indices", "index"), ("futures", "index")):
         for name, d in (data.get(grp, {}) or {}).items():
             if name == "VIX":
                 continue                  # VIX ha il suo range-check; si muove legittimamente >15%/gg
