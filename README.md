@@ -21,7 +21,7 @@ An active trader starts the day by manually checking a dozen dashboards: rates, 
 
 ## Data sources
 
-All free or public-tier: FRED (Federal Reserve of St. Louis), CME Fed Funds futures (via Yahoo Finance), CoinGecko, Coinalyze, Deribit, DefiLlama, Binance, SoSoValue (ETF flows, with farside.co.uk as fallback), Forex Factory, Slickcharts, Yahoo Finance (with a Finnhub fallback), Google Gemini (news synthesis), and RSS feeds from major financial and general-news outlets, the Fed / ECB / BoE / BoJ, and crypto publications.
+All free or public-tier: FRED (Federal Reserve of St. Louis), CME Fed Funds futures (via Yahoo Finance), CoinGecko, Coinalyze, Deribit, DefiLlama, Binance, SoSoValue (ETF flows, with farside.co.uk as fallback), Forex Factory (with FXStreet for the few calendar events it doesn't publish), Slickcharts, Yahoo Finance (with a Finnhub fallback), Google Gemini (news synthesis), and RSS feeds from major financial and general-news outlets, the Fed / ECB / BoE / BoJ, and crypto publications.
 
 ## Tech stack
 

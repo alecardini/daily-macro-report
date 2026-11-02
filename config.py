@@ -231,9 +231,9 @@ CALENDAR_WHITELIST = [
     "Durable Goods Orders",    # USD — Low on FF, kept via whitelist
     "Final GDP q/q",           # GBP — Low on FF, kept via whitelist
     "GDP q/y",                 # CNY China GDP — Low on FF, kept via whitelist
-    "ISM Manufacturing Prices",# USD — Low on FF: serve la whitelist perché il filtro d'ingresso
-                               # scarta i "Low" PRIMA degli override (l'entry in IMPACT_HIGH da
-                               # sola non bastava e restava inerte) → ora visibile e HIGH
+    "ISM Manufacturing Prices",# USD — Low on FF. Dal 02/11/2026 non serve più: ogni override HIGH
+                               # fa entrare l'evento anche se FF lo dà "Low" (vedi _parse_ff_json).
+                               # Lasciato perché innocuo.
     "ISM Non-Manufacturing Prices",  # USD — ⚠️ FF NON pubblica questo evento (verificato su 5
                                # settimane di uscite ISM servizi, nessun nome alternativo): voce
                                # INERTE, pronta se un giorno lo aggiungesse. Come Chicago PMI.

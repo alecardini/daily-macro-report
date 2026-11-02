@@ -595,7 +595,13 @@ def _parse_ff_json(data, target_dates):
 
             in_whitelist = any(w in title for w in whitelist)
             is_holiday = impact == "holiday"
-            if impact not in ("high", "medium") and not in_whitelist and not is_holiday:
+            # Un override HIGH ("voglio vederlo ad alto impatto") fa sempre entrare l'evento, anche
+            # se FF quella settimana lo classifica "Low". Prima il filtro d'ingresso scartava i Low
+            # PRIMA degli override: così sparivano l'ADP (FF Low il 04/11/2026) e lo US Flash
+            # Services PMI (Low il 23/09/2026). Solo HIGH: gli override MED catturano per
+            # sottostringa eventi mai richiesti (es. CAD "Core CPI m/m" via ("CPI m/m","CAD")).
+            forced_high = _match_impact_override(high_force, title, currency)
+            if impact not in ("high", "medium") and not in_whitelist and not is_holiday and not forced_high:
                 continue
             date_str = event.get("date", "")
             if not date_str:
@@ -738,6 +744,79 @@ def _parse_ff_json(data, target_dates):
     for day in result:
         result[day].sort(key=lambda x: x.get("sort_time") or x["time"])
     return result
+
+
+# ── Eventi SUPPLEMENTARI da FXStreet (solo quelli che Forex Factory NON pubblica) ──────
+# FF resta la fonte eventi principale. Qui si aggiungono singoli eventi che FF non ha, presi
+# per IDENTIFICATIVO FISSO di FXStreet (non per nome → nessun rischio di agganciare la riga
+# sbagliata). Il nome mostrato è quello di investing.com, come chiesto dall'utente (02/11/2026).
+# eventId → (nome mostrato, valuta, impatto)
+_FXSTREET_EXTRA_EVENTS = {
+    # "ISM Services Prices Paid" su FXStreet; id stabile verificato ago→nov 2026, previous e
+    # orario coincidenti con investing.com (16:00 Roma, prev 74.0 il 04/11/2026).
+    "4212ccfd-7481-4bb7-a463-83ef68596f78": ("ISM Non-Manufacturing Prices", "USD", "HIGH"),
+}
+
+
+def _fxs_fmt(v, unit):
+    if v is None:
+        return "—"
+    return f"{v:.1f}{unit or ''}"
+
+
+def _fxstreet_extra_events(target_dates):
+    """Eventi di _FXSTREET_EXTRA_EVENTS nella finestra. Qualunque errore → [] (l'evento
+    semplicemente non compare, il resto del calendario è intatto)."""
+    if not target_dates or not _FXSTREET_EXTRA_EVENTS:
+        return []
+    start = min(target_dates) - timedelta(days=1)
+    end = max(target_dates) + timedelta(days=1)
+    try:
+        r = requests.get(
+            f"https://calendar-api.fxstreet.com/en/api/v1/eventDates/{start}T00:00:00Z/{end}T23:59:59Z",
+            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                                   "(KHTML, like Gecko) Chrome/128.0 Safari/537.36",
+                     "Referer": "https://www.fxstreet.com/economic-calendar",
+                     "Origin": "https://www.fxstreet.com"},
+            timeout=15)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        print(f"[Calendar] FXStreet extra events unavailable ({e})")
+        return []
+
+    now_rome, out = datetime.now(ROME_TZ), []
+    for e in data:
+        spec = _FXSTREET_EXTRA_EVENTS.get(e.get("eventId"))
+        if not spec:
+            continue
+        name, currency, impact = spec
+        dt = datetime.fromisoformat(e["dateUtc"].replace("Z", "+00:00")).astimezone(ROME_TZ)
+        if dt.date() not in target_dates:
+            continue
+        unit = e.get("unit") or ""
+        actual = e.get("actual")
+        previous = _fxs_fmt(e.get("previous"), unit)
+        revised = _fxs_fmt(e.get("revised"), unit) if e.get("revised") is not None else ""
+        tentative = bool(e.get("isTentative"))
+        flag, _ = CURRENCY_FLAGS.get(currency, ("", currency))
+        out.append({
+            "day_key":   dt.strftime("%A %d %B"),
+            "time":      "Tentative" if tentative else dt.strftime("%H:%M"),
+            "time_note": "",
+            "sort_time": "24:00" if tentative else None,
+            "currency":  currency,
+            "flag":      flag,
+            "event":     name,
+            "impact":    impact,
+            "forecast":  _fxs_fmt(e.get("consensus"), unit),
+            "previous":  previous,
+            "revision":  revised if revised and revised != previous else "",
+            "actual":    _fxs_fmt(actual, unit) if actual is not None else "—",
+            "actual_overdue": actual is None and not tentative and dt < now_rome,
+            "source":    "FXStreet",
+        })
+    return out
 
 
 def fetch_forex_factory_multiday(days=3):
@@ -890,6 +969,15 @@ def fetch_forex_factory_multiday(days=3):
                 result[day_key].sort(key=lambda x: x.get("sort_time") or x["time"])
         except Exception as e:
             print(f"[Calendar] Parsing error {url}: {e}")
+
+    # Eventi supplementari (FXStreet): aggiunti SOLO se FF non ha già lo stesso evento allo
+    # stesso orario → se un giorno FF lo pubblicasse, nessun doppione.
+    for ev in _fxstreet_extra_events(target_dates):
+        day_key = ev.pop("day_key")
+        day_events = result.setdefault(day_key, [])
+        if (ev["time"], ev["event"].lower()) not in {(x["time"], x["event"].lower()) for x in day_events}:
+            day_events.append(ev)
+            day_events.sort(key=lambda x: x.get("sort_time") or x["time"])
 
     # Riga weekend: ricostruita con le festività REALI del lunedì successivo.
     for i in range(days):

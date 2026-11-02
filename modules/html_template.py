@@ -29,13 +29,40 @@ def arrow(direction):
 # CALENDARIO ECONOMICO
 # ─────────────────────────────────────────────────────────────
 
+_CAL_SUFFIX = {"K": 1e3, "M": 1e6, "B": 1e9, "T": 1e12}
+
+
+def _cal_num(s):
+    """Numero da una stringa FF ('<1.25%', '-1349M', '0.5%', '245K', '3,250K'); None se non numerica."""
+    try:
+        t = str(s).strip().replace(",", "").replace("%", "").lstrip("<>")
+        mult = 1.0
+        if t and t[-1].upper() in _CAL_SUFFIX:
+            mult, t = _CAL_SUFFIX[t[-1].upper()], t[:-1]
+        return float(t) * mult
+    except (ValueError, TypeError):
+        return None
+
+
+def _actual_vs_forecast(actual, forecast):
+    """Colore dell'actual rispetto al forecast — confronto PURAMENTE NUMERICO (scelta utente
+    02/11/2026): sopra → verde, sotto → rosso, uguale / forecast assente / non numerico → colore
+    normale. NON dice se il dato è buono o cattivo (es. disoccupazione o CPI sopra le attese):
+    dice solo da che parte è uscito rispetto alle aspettative; l'interpretazione la fa l'utente."""
+    a, f = _cal_num(actual), _cal_num(forecast)
+    if a is None or f is None:
+        return ""
+    return "actual-above" if a > f else "actual-below" if a < f else ""
+
+
 def _render_calendar_table(events):
     rows = ""
     for ev in events:
         actual = ev.get("actual", "—")
         actual_overdue = ev.get("actual_overdue", False)
-        # Actual pubblicato: stesso colore delle altre celle, solo in grassetto
-        actual_cls = "actual-val" if actual not in ["—", "", "N/A"] else ""
+        # Actual pubblicato: grassetto + colore vs forecast (verde sopra / rosso sotto / normale se uguale)
+        actual_cls = (f"actual-val {_actual_vs_forecast(actual, ev.get('forecast', '—'))}".strip()
+                      if actual not in ["—", "", "N/A"] else "")
         # Revisione del dato precedente: riga separata sotto il previous (FF 'previous' resta
         # il valore pubblicato all'epoca, 'revision' è il valore rivisto).
         rev = ev.get("revision", "")
@@ -1012,6 +1039,8 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .event-name{{color:var(--text);font-weight:500}}
 .data-cell{{color:var(--text2);text-align:center}}
 .actual-val{{font-weight:900}}
+.actual-above{{color:var(--pos)}}
+.actual-below{{color:var(--neg)}}
 .revision-note{{margin-top:3px;font-size:10px;font-weight:400;color:var(--text3);letter-spacing:.2px}}
 .actual-pending-btn{{display:inline-block;background:#2c3e5022;border:1px solid #3498db;color:#3498db;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;text-decoration:none;white-space:nowrap}}
 .actual-pending-btn:hover{{background:#3498db33;color:#74b9ff}}
