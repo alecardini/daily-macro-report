@@ -286,6 +286,7 @@ CALENDAR_BLACKLIST_CURRENCY = [
     ("10-y Bond Auction", "JPY"),   # Japan bond auction
     ("10-y Bond Auction", "GBP"),   # UK gilt auction
     ("30-y Bond Auction", "JPY"),   # Japan 30y bond auction (USD 30y resta visibile)
+    ("30-y Bond Auction", "GBP"),   # UK 30y gilt auction — rimosso su richiesta (entrava come WL via whitelist "30-y Bond Auction")
     ("Employment Change", "CAD"),   # Canada jobs — rimosso (USD/AUD restano)
     ("Unemployment Rate", "CAD"),   # Canada — rimosso (USD/AUD restano)
     ("Retail Sales m/m",  "GBP"),   # UK Retail Sales — rimosso (US Retail Sales m/m resta HIGH)
