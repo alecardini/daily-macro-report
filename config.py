@@ -217,8 +217,6 @@ MAX_ARTICLES_PER_SOURCE = 2
 # =============================================================================
 CALENDAR_WHITELIST = [
     "Final Services PMI",      # S&P Global Services PMI (US)
-    "10-y Bond Auction",       # 10-Year Note Auction (USD)
-    "30-y Bond Auction",       # 30-Year Bond Auction (USD)
     "German Final CPI",        # German Final CPI m/m (EUR)
     "Existing Home Sales",     # USD
     "Manufacturing PMI",       # CNY
@@ -322,6 +320,10 @@ CALENDAR_IMPACT_HIGH = [
     ("GDP q/y",                   "CNY"),   # China GDP → alto
     ("German Final GDP q/q",      "EUR"),   # German Final GDP q/q → alto (resta in whitelist → visibile)
     ("German Prelim GDP q/q",     "EUR"),   # German Prelim GDP q/q → alto (FF lo dà Medium)
+    # 08/11/2026 — allineati a investing.com (★★★), su richiesta: "stesso impatto di investing".
+    ("German Final CPI m/m",      "EUR"),   # era MED (scelta del 05/08) → HIGH
+    ("GDP m/m",                   "GBP"),   # era MED (scelta del 05/08) → HIGH
+    ("Prelim GDP q/q",            "GBP"),   # FF lo dà Medium → HIGH
     ("Final GDP q/q",             "JPY"),   # Japan Final GDP q/q → alto (era WL; GBP/EUR hanno voci proprie)
     ("Final Manufacturing PMI",   "USD"),   # US Final Manufacturing PMI → alto (JPY/EUR/GBP restano MED)
     ("Retail Sales m/m",          "USD"),   # US Retail Sales (copre anche Core Retail Sales m/m) → alto
@@ -360,8 +362,6 @@ CALENDAR_IMPACT_MED = [
     ("CPI q/q",                    "NZD"),   # NZ CPI → medio (scoped NZD: non tocca il CPI q/q australiano)
     ("Employment Change q/q",      "NZD"),   # NZ Employment → medio
     ("Unemployment Rate",          "NZD"),   # NZ Unemployment → medio (AUD resta MED, USD non toccato)
-    ("German Final CPI m/m",       "EUR"),   # German Final CPI → medio (resta in whitelist → mostrato come MED; Prelim resta HIGH)
-    ("GDP m/m",                    "GBP"),   # UK monthly GDP → medio (era HIGH nativo FF)
     ("GDP q/q",                    "AUD"),   # Australia GDP → medio (scoped AUD: Final GDP q/q GBP e German Final GDP q/q EUR restano HIGH)
     ("GDP q/q",                    "NZD"),   # New Zealand GDP → medio (scoped NZD; i Final GDP q/q GBP/EUR/JPY restano HIGH)
     ("RBNZ Monetary Policy Statement", "NZD"),  # → medio (la decisione tassi "Official Cash Rate" resta HIGH)

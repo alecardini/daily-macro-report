@@ -749,12 +749,20 @@ def _parse_ff_json(data, target_dates):
 # ── Eventi SUPPLEMENTARI da FXStreet (solo quelli che Forex Factory NON pubblica) ──────
 # FF resta la fonte eventi principale. Qui si aggiungono singoli eventi che FF non ha, presi
 # per IDENTIFICATIVO FISSO di FXStreet (non per nome → nessun rischio di agganciare la riga
-# sbagliata). Il nome mostrato è quello di investing.com, come chiesto dall'utente (02/11/2026).
-# eventId → (nome mostrato, valuta, impatto)
+# sbagliata). Nome: quello di investing.com per ISM Non-Manufacturing Prices (richiesta utente
+# 02/11/2026), stile FF per gli altri (coerenza con le righe vicine + controllo doppioni).
+# eventId → (nome mostrato, valuta, impatto). Il nome può essere un dict {preliminare?: nome}
+# per gli eventi che FXStreet pubblica sia in versione preliminare sia finale.
 _FXSTREET_EXTRA_EVENTS = {
     # "ISM Services Prices Paid" su FXStreet; id stabile verificato ago→nov 2026, previous e
     # orario coincidenti con investing.com (16:00 Roma, prev 74.0 il 04/11/2026).
     "4212ccfd-7481-4bb7-a463-83ef68596f78": ("ISM Non-Manufacturing Prices", "USD", "HIGH"),
+    # 08/11/2026 — ★★★ su investing ma assenti dal feed FF. Nomi in stile FF (come le righe
+    # vicine "CPI m/m", "Prelim GDP q/q"), così se FF li pubblicasse il controllo doppioni li
+    # riconosce. Id stabili ago/ott/nov 2026; previous coincidenti con investing (3.7%, 1.4%).
+    "6f846eaa-9a12-43ab-930d-f059069c6646": ("CPI y/y", "USD", "HIGH"),        # Consumer Price Index (YoY)
+    "c8e75081-4d7e-4ca3-b29b-968f71a5d480": ({True: "Prelim GDP y/y", False: "Final GDP y/y"},
+                                             "GBP", "HIGH"),                     # Gross Domestic Product (YoY)
 }
 
 
@@ -791,6 +799,8 @@ def _fxstreet_extra_events(target_dates):
         if not spec:
             continue
         name, currency, impact = spec
+        if isinstance(name, dict):
+            name = name[bool(e.get("isPreliminary"))]
         dt = datetime.fromisoformat(e["dateUtc"].replace("Z", "+00:00")).astimezone(ROME_TZ)
         if dt.date() not in target_dates:
             continue
@@ -975,7 +985,8 @@ def fetch_forex_factory_multiday(days=3):
     for ev in _fxstreet_extra_events(target_dates):
         day_key = ev.pop("day_key")
         day_events = result.setdefault(day_key, [])
-        if (ev["time"], ev["event"].lower()) not in {(x["time"], x["event"].lower()) for x in day_events}:
+        if (ev["time"], ev["currency"], ev["event"].lower()) not in \
+                {(x["time"], x.get("currency"), x["event"].lower()) for x in day_events}:
             day_events.append(ev)
             day_events.sort(key=lambda x: x.get("sort_time") or x["time"])
 
