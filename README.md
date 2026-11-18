@@ -16,12 +16,12 @@ An active trader starts the day by manually checking a dozen dashboards: rates, 
 - **Liquidity & positioning** — stablecoin supply and 7/30/90-day net flows as a dry-powder proxy, each ranked as a percentile versus both full history and the last three years, plus Deribit put/call ratios and implied volatility (DVOL).
 - **Equities** — US indices and pre-market futures, the Asian session, sector rotation, and an earnings calendar covering large caps and a crypto-proxy watchlist.
 - **Sentiment** — crypto and equity Fear & Greed, the AAII survey, and VIX.
-- **News** — breaking, central-bank, crypto, oil and AI feeds, de-duplicated and impact-ranked, each with a short, strictly descriptive LLM-generated summary.
+- **News** — breaking, central-bank, crypto, oil, and AI, robotics & cybersecurity feeds, de-duplicated and impact-ranked, each with a short, strictly descriptive LLM-generated summary.
 - **Data-quality layer** — flags implausible or stale values (impossible prices, absurd moves, frozen sources) before rendering.
 
 ## Data sources
 
-All free or public-tier: FRED (Federal Reserve of St. Louis), CME Fed Funds futures (via Yahoo Finance), CoinGecko, Coinalyze, Deribit, DefiLlama, Binance, SoSoValue (ETF flows, with farside.co.uk as fallback), Forex Factory (with FXStreet for the few calendar events it doesn't publish), Slickcharts, Yahoo Finance (with a Finnhub fallback), Google Gemini (news synthesis), and RSS feeds from major financial and general-news outlets, the Fed / ECB / BoE / BoJ, and crypto publications.
+All free or public-tier: FRED (Federal Reserve of St. Louis), CME Fed Funds futures (via Yahoo Finance), CoinGecko, Coinalyze, Deribit, DefiLlama, Binance, SoSoValue (ETF flows, with farside.co.uk as fallback), Forex Factory (with FXStreet for the few calendar events it doesn't publish), Slickcharts, Yahoo Finance (with a Finnhub fallback), Google Gemini (news synthesis), and RSS feeds from major financial and general-news outlets, the Fed / ECB / BoE / BoJ, crypto publications, and cybersecurity outlets (The Record, Risky Bulletin, Krebs on Security and others).
 
 ## Tech stack
 

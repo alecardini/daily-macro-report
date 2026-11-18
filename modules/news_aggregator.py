@@ -407,7 +407,7 @@ def get_all_syntheses(data):
         ("cb_news",     data.get("cb_news", []),     "central bank / monetary policy"),
         ("crypto_news", data.get("crypto_news", []), "crypto"),
         ("oil_news",    data.get("oil_news", []),    "oil & energy"),
-        ("ai_news",     data.get("ai_news", []),     "AI & technology"),
+        ("ai_news",     data.get("ai_news", []),     "AI, robotics & cybersecurity"),
     ]
     blocks = []
     for key, arts, ctx in sections:
@@ -556,18 +556,36 @@ def deduplicate_across_sections(ordered_sections):
     """
     seen_titles = []
     result = {}
-    for key, articles, max_display in ordered_sections:
-        kept = []
-        for art in (articles or []):
-            if len(kept) >= max_display:
-                break
-            title = art.get("title", "")
-            if not title:
-                continue
-            is_dup = any(_titles_similar(title, s) for s in seen_titles)
-            if not is_dup:
-                kept.append(art)
-                seen_titles.append(art.get("title", ""))
+    for sec in ordered_sections:
+        key, articles, max_display = sec[0], sec[1], sec[2]
+        selector = sec[3] if len(sec) > 3 else None
+        if selector is None:
+            kept = []
+            for art in (articles or []):
+                if len(kept) >= max_display:
+                    break
+                title = art.get("title", "")
+                if not title:
+                    continue
+                is_dup = any(_titles_similar(title, s) for s in seen_titles)
+                if not is_dup:
+                    kept.append(art)
+                    seen_titles.append(art.get("title", ""))
+        else:
+            # Selettore custom (es. quota per categoria): prima tutti i candidati NON duplicati
+            # (vs sezioni precedenti e tra loro), poi il selettore sceglie; solo i scelti
+            # vengono 'reclamati' → gli scartati restano disponibili alle sezioni successive.
+            cands, cand_titles = [], []
+            for art in (articles or []):
+                title = art.get("title", "")
+                if not title:
+                    continue
+                if any(_titles_similar(title, s) for s in seen_titles + cand_titles):
+                    continue
+                cands.append(art)
+                cand_titles.append(title)
+            kept = selector(cands, max_display)
+            seen_titles.extend(a.get("title", "") for a in kept)
         result[key] = kept
     return result
 
@@ -737,29 +755,148 @@ def get_oil_news():
     return result
 
 
-def get_ai_robotics_news():
-    """News AI & Robotica ultime 24h."""
-    print("[News] Fetching AI & Robotics news...")
-    all_articles = []
+# ── AI, Robotics & Cybersecurity: classificazione + rilevanza per il TRADING ──
+ROBOTICS_KEYWORDS = [
+    "robot", "robotics", "humanoid", "optimus", "boston dynamics", "figure ai", "unitree",
+    "robotaxi", "waymo", "self-driving", "autonomous vehicle", "autonomous driving",
+    "zoox", "cybercab", "drone", "industrial automation", "fanuc", "physical ai",
+]
+# NB: match per sottostringa → niente "cyber" nudo (prenderebbe Cybercab/Cybertruck) né "apt"
+# (prenderebbe adapt/chapter).
+CYBER_KEYWORDS = [
+    "cybersecurity", "cyber security", "cyberattack", "cyber attack", "cyber-attack",
+    "cybercrime", "cybercriminal", "cyber espionage", "hacker", "hacked", "hacking", " hack ", "hacks",
+    "breach", "ransomware", "malware", "phishing", "zero-day", "zero day", "vulnerability",
+    "data leak", "stolen data", "ddos", "spyware", "infostealer", "botnet",
+    "crowdstrike", "palo alto networks", "zscaler", "fortinet", "sentinelone", "okta",
+]
+# Rilevanza per un trader (titolo ×2, summary ×1). Penalità per contenuti tecnici/di servizio.
+_CAT_WEIGHTS = {
+    "ai": {
+        4: ["nvidia", "openai", "anthropic", "export control", "chip ban", "data center",
+            "capex", "valuation", "funding round", "ipo", "acquisition", "antitrust", "regulation"],
+        2: ["microsoft", "google", "alphabet", "meta", "amazon", "apple", "tsmc", "amd",
+            "broadcom", "xai", "deepseek", "semiconductor", "chips", "model", "earnings"],
+    },
+    "robotics": {
+        4: ["tesla", "optimus", "humanoid", "robotaxi", "waymo", "figure ai", "funding",
+            "valuation", "acquisition", "ipo", "recall", "nhtsa", "crash", "launch"],
+        2: ["nvidia", "amazon", "hyundai", "boston dynamics", "unitree", "factory",
+            "autonomous", "production", "deal", "china"],
+    },
+    "cyber": {
+        5: ["ransomware attack", "data breach", "breach", "outage", "state-sponsored",
+            "nation-state", "critical infrastructure", "sec filing", "8-k", "sanction",
+            "indicted", "charged", "arrested", "extradit"],
+        3: ["china", "chinese", "russia", "russian", "iran", "north korea", "lazarus",
+            "bank", "exchange", "hospital", "airline", "utility", "power grid", "telecom",
+            "government", "pentagon", "nsa", "fbi", "cisa", "zero-day", "zero day",
+            "microsoft", "cisco", "fortinet", "ivanti", "palo alto", "crowdstrike", "okta",
+            "zscaler", "sentinelone", "cloudflare", "google", "apple", "aws", "acquisition",
+            "acquire", "million", "billion", "customers", "records"],
+    },
+}
+_CAT_PENALTY = ["webinar", "podcast", "sponsored", "how to", "tips", "guide", "review",
+                "hands-on", "best ", "deal:", "deals", "vacuum", "week in", "newsletter",
+                "proof-of-concept", "poc ", "cheat sheet", "quiz"]
 
-    ai_feeds = [
+
+def _classify_tech(art, from_cyber_feed):
+    title = (art.get("title") or "").lower()
+    text = f"{title} {(art.get('summary') or '').lower()}"
+    if from_cyber_feed or contains_keywords(title, CYBER_KEYWORDS):
+        return "cyber"
+    if contains_keywords(text, ROBOTICS_KEYWORDS):
+        return "robotics"
+    return "ai"
+
+
+def _tech_score(art, cat):
+    title = (art.get("title") or "").lower()
+    summary = (art.get("summary") or "").lower()
+    score = _impact_score(art)
+    for w, kws in _CAT_WEIGHTS[cat].items():
+        for kw in kws:
+            if kw in title:
+                score += w * 2
+            elif kw in summary:
+                score += w
+    if any(p in title for p in _CAT_PENALTY):
+        score -= 8
+    return score
+
+
+# Soglia minima di rilevanza: sotto, una notizia non entra né in quota né come riempimento
+# (meglio meno card che notizie irrilevanti).
+_TECH_MIN_SCORE = 2
+
+
+def select_tech_with_quota(candidates, max_display, quota=None):
+    """
+    Selettore per la sezione AI/Robotics/Cyber (usato dalla dedup cross-sezione).
+    1) prende le migliori di ogni categoria fino alla sua quota (5/4/3);
+    2) i posti rimasti vuoti vanno alle migliori RIMASTE di qualunque categoria;
+    3) ordine finale per rilevanza. Sotto _TECH_MIN_SCORE non entra niente.
+    """
+    quota = quota or getattr(config, "NEWS_AI_QUOTA", {"ai": 5, "robotics": 4, "cyber": 3})
+    pool = sorted((a for a in candidates if a.get("tech_score", 0) >= _TECH_MIN_SCORE),
+                  key=lambda a: a.get("tech_score", 0), reverse=True)
+    chosen, used = [], set()
+    for cat, n in quota.items():
+        for a in [x for x in pool if x.get("tech_cat") == cat][:n]:
+            chosen.append(a); used.add(id(a))
+    # Riempimento A TURNO secondo le quote (ai → robotics → cyber, ripetuto), così i posti liberi
+    # rispettano la proporzione e non vanno tutti alla categoria con punteggi più alti
+    # (18/11 test: senza turni finiva 5 AI / 2 robotics / 5 cyber).
+    rest = {cat: [x for x in pool if x.get("tech_cat") == cat and id(x) not in used] for cat in quota}
+    while len(chosen) < max_display and any(rest.values()):
+        for cat in quota:
+            if len(chosen) >= max_display:
+                break
+            if rest[cat]:
+                a = rest[cat].pop(0)
+                chosen.append(a); used.add(id(a))
+    chosen = chosen[:max_display]
+    chosen.sort(key=lambda a: a.get("tech_score", 0), reverse=True)
+    return chosen
+
+
+def get_ai_robotics_news():
+    """News AI, Robotics & Cybersecurity ultime 24h → POOL classificato (ai/robotics/cyber)."""
+    print("[News] Fetching AI, Robotics & Cybersecurity news...")
+    tech_feeds = [
         ("Bloomberg - Technology", config.RSS_FEEDS_AI.get("Bloomberg - Technology", "")),
         ("CNBC - Technology",      config.RSS_FEEDS_AI.get("CNBC - Technology", "")),
         ("BBC - Technology",       config.RSS_FEEDS_AI.get("BBC - Technology", "")),
         ("The Guardian - Tech",    config.RSS_FEEDS_AI.get("The Guardian - Tech", "")),
         ("Seeking Alpha - Tech",   config.RSS_FEEDS_AI.get("Seeking Alpha - Tech", "")),
     ]
+    tech_kw = AI_KEYWORDS + ROBOTICS_KEYWORDS + CYBER_KEYWORDS
 
-    for name, url in ai_feeds:
+    by_cat = defaultdict(list)
+    for name, url in tech_feeds:
         if not url:
             continue
-        arts = fetch_rss_feed(name, url, filter_keywords=AI_KEYWORDS, hours_back=config.NEWS_HOURS_BACK)
-        all_articles.extend(arts)
+        arts = fetch_rss_feed(name, url, filter_keywords=tech_kw, hours_back=config.NEWS_HOURS_BACK)
+        for a in arts:
+            by_cat[_classify_tech(a, False)].append(a)
         print(f"  {name}: {len(arts)} articoli")
+    for name, url in getattr(config, "RSS_FEEDS_CYBER", {}).items():
+        arts = fetch_rss_feed(name, url, filter_keywords=None, hours_back=config.NEWS_HOURS_BACK)
+        by_cat["cyber"].extend(arts)
+        print(f"  {name}: {len(arts)} articoli")
+    for a in fetch_newsapi(category="ai"):
+        by_cat[_classify_tech(a, False)].append(a)
 
-    newsapi_arts = fetch_newsapi(category="ai")
-    all_articles.extend(newsapi_arts)
-
-    result = deduplicate_with_source_limit(all_articles, max_total=20, max_per_source=2)  # POOL
-    print(f"[News] AI news totali: {len(result)}")
-    return result
+    # Dedup + tetto per fonte DENTRO ogni categoria, poi punteggio di rilevanza per categoria.
+    pool = []
+    for cat in ("ai", "robotics", "cyber"):
+        arts = deduplicate_with_source_limit(by_cat[cat], max_total=15, max_per_source=2)
+        for a in arts:
+            a["tech_cat"] = cat
+            a["tech_score"] = _tech_score(a, cat)
+        pool.extend(arts)
+        print(f"  → {cat}: {len(arts)} candidati")
+    pool.sort(key=lambda a: a["tech_score"], reverse=True)
+    print(f"[News] AI/Robotics/Cyber pool: {len(pool)}")
+    return pool

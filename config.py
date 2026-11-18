@@ -73,7 +73,10 @@ NEWS_HOURS_BACK = 24
 # Numero massimo di notizie per sezione
 MAX_NEWS_GENERAL = 12
 MAX_NEWS_CENTRAL_BANKS = 8
-MAX_NEWS_AI = 6
+MAX_NEWS_AI = 12   # sezione "AI, Robotics & Cybersecurity" (18/11/2026: da 6 a 12)
+# Quota per categoria dentro i 12 (proporzione utente 3:3:2 → 5/4/3). È un punto di PARTENZA:
+# se una categoria non ha abbastanza notizie rilevanti, i posti vanno alle migliori rimaste.
+NEWS_AI_QUOTA = {"ai": 5, "robotics": 4, "cyber": 3}
 MAX_NEWS_CRYPTO = 8
 
 # Asset da monitorare
@@ -203,6 +206,21 @@ RSS_FEEDS_AI = {
     "BBC - Technology":       "http://feeds.bbci.co.uk/news/technology/rss.xml",
     "The Guardian - Tech":    "https://www.theguardian.com/technology/rss",
     "Seeking Alpha - Tech":   "https://seekingalpha.com/sector/technology.xml",
+}
+
+# ── CYBERSECURITY (stessa sezione "AI, Robotics & Cybersecurity") ──
+# Testati 18/11/2026 (HTTP 200, uscite nelle 24h). Scartati: BleepingComputer e SecurityWeek
+# (403, ci bloccano), CSIRT/ACN Italia (feed 403/404), CISA KEV (catalogo CVE, non notizie),
+# CERT-AgID / Cybersecurity360 / Red Hot Cyber (in italiano, focus Italia), tl;dr sec / SANS
+# (settimanali, tecnici). Le testate tech sopra coprono comunque i grandi attacchi.
+RSS_FEEDS_CYBER = {
+    "The Record":            "https://therecord.media/feed",
+    "Risky Bulletin":        "https://news.risky.biz/rss/",
+    "Krebs on Security":     "https://krebsonsecurity.com/feed/",
+    "The Hacker News":       "https://feeds.feedburner.com/TheHackersNews",
+    "Dark Reading":          "https://www.darkreading.com/rss.xml",
+    "CyberScoop":            "https://cyberscoop.com/feed/",
+    "The Register - Security": "https://www.theregister.com/security/headlines.atom",
 }
 
 # Massimo articoli per singola fonte (evita monopolio di una sola fonte)

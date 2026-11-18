@@ -149,10 +149,14 @@ def render_calendar(events_data):
 def render_news_item(art, idx):
     has_full = art.get("has_full_text", False)
     full_badge = '<span class="full-badge">FULL TEXT</span>' if has_full else ""
+    cat = art.get("tech_cat")
+    cat_badge = (f'<span class="tech-cat tech-{cat}">{ {"ai": "AI", "robotics": "ROBOTICS", "cyber": "CYBER"}[cat] }</span>'
+                 if cat in ("ai", "robotics", "cyber") else "")
     return f"""
     <div class="news-item">
         <div class="news-header">
             <span class="news-source">{art.get('source','')}</span>
+            {cat_badge}
             {full_badge}
             <span class="news-num">#{idx}</span>
         </div>
@@ -756,10 +760,8 @@ def _earnings_table_header():
         <span class="etcol-name">Company</span>
         <span class="etcol-date">Date</span>
         <span class="etcol-time">Time</span>
-        <span class="etcol-eps">EPS Actual</span>
         <span class="etcol-eps">EPS Est.</span>
         <span class="etcol-rev">Rev Est.</span>
-        <span class="etcol-surp">Surprise</span>
     </div>"""
 
 
@@ -790,10 +792,8 @@ def _earnings_row(e, badge=None):
         <span class="etcol-name earning-name">{e['name']}</span>
         <span class="etcol-date earning-date">{e['date_fmt']}</span>
         <span class="etcol-time">{time_cell}</span>
-        <span class="etcol-eps {'positive' if beat is True else 'negative' if beat is False else ''}">{e.get('eps_actual','—')}</span>
         <span class="etcol-eps neutral-c">{e.get('eps_estimate','—')}</span>
         <span class="etcol-rev neutral-c">{e.get('rev_estimate','—')}</span>
-        <span class="etcol-surp {surp_cls}">{e.get('surprise','—')}</span>
     </div>"""
 
 
@@ -1134,6 +1134,8 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .news-item:hover{{border-color:var(--acc)}}
 .news-header{{display:flex;align-items:center;gap:7px;margin-bottom:7px}}
 .news-source{{background:var(--acc);color:#fff;padding:2px 7px;border-radius:4px;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px}}
+.tech-cat{{padding:1px 5px;border-radius:4px;font-size:7px;font-weight:700;letter-spacing:.5px;border:1px solid}}
+.tech-ai{{color:#7aa2ff;border-color:#7aa2ff}}.tech-robotics{{color:#f39c12;border-color:#f39c12}}.tech-cyber{{color:#e05cff;border-color:#e05cff}}
 .full-badge{{background:#00d09c22;color:var(--pos);border:1px solid var(--pos);padding:1px 5px;border-radius:4px;font-size:7px;font-weight:700}}
 .news-num{{color:var(--text3);font-size:9px;margin-left:auto}}
 .news-title{{display:block;color:var(--text);font-weight:600;font-size:12px;text-decoration:none;margin-bottom:7px;line-height:1.4}}
@@ -1298,8 +1300,8 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .earnings-section-label{{font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)}}
 /* Earnings table */
 .etable{{background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:6px}}
-.etable-header{{display:grid;grid-template-columns:115px 1fr 90px 100px 80px 80px 90px 80px;gap:8px;padding:7px 14px;background:var(--bg3);font-size:8px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px}}
-.etable-row{{display:grid;grid-template-columns:115px 1fr 90px 100px 80px 80px 90px 80px;gap:8px;padding:9px 14px;border-top:1px solid var(--border);font-size:11px;align-items:center}}
+.etable-header{{display:grid;grid-template-columns:115px 1fr 90px 100px 90px 100px;gap:8px;padding:7px 14px;background:var(--bg3);font-size:8px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px}}
+.etable-row{{display:grid;grid-template-columns:115px 1fr 90px 100px 90px 100px;gap:8px;padding:9px 14px;border-top:1px solid var(--border);font-size:11px;align-items:center}}
 .etcol-sym{{min-width:0}}
 .etable-row:hover{{background:var(--bg3)}}
 .etcol-sym{{display:flex;align-items:center;gap:4px}}
@@ -1439,8 +1441,8 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 <div class="section">
   <div class="section-header">
     <span class="section-icon">🤖</span>
-    <span class="section-title">AI & Robotics — Last 24h</span>
-    <span class="section-sub">Bloomberg Tech · CNBC Tech · BBC Tech · Guardian Tech</span>
+    <span class="section-title">AI, Robotics & Cybersecurity — Last 24h</span>
+    <span class="section-sub">Bloomberg · CNBC · BBC · Guardian Tech · The Record · Risky Bulletin · Krebs · The Hacker News · Dark Reading · CyberScoop</span>
   </div>
   <div class="section-body">{ai_html}</div>
 </div>

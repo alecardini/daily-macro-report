@@ -135,11 +135,11 @@ def main():
     #    Central Banks > Crypto > AI > Oil > Breaking (catch-all). Le sezioni pescano un
     #    pool ampio; qui si taglia al numero finale ripescando i migliori rimasti. ──
     import config as _cfg
-    from modules.news_aggregator import deduplicate_across_sections, _enrich_selected
+    from modules.news_aggregator import deduplicate_across_sections, _enrich_selected, select_tech_with_quota
     _deduped = deduplicate_across_sections([
         ("cb_news",     data.get("cb_news", []),     getattr(_cfg, "MAX_NEWS_CENTRAL_BANKS", 8)),
         ("crypto_news", data.get("crypto_news", []), getattr(_cfg, "MAX_NEWS_CRYPTO", 8)),
-        ("ai_news",     data.get("ai_news", []),     getattr(_cfg, "MAX_NEWS_AI", 6)),
+        ("ai_news",     data.get("ai_news", []),     getattr(_cfg, "MAX_NEWS_AI", 12), select_tech_with_quota),
         ("oil_news",    data.get("oil_news", []),    getattr(_cfg, "MAX_NEWS_OIL", 8)),
         ("news",        data.get("news", []),        getattr(_cfg, "MAX_NEWS_GENERAL", 12)),
     ])
