@@ -73,21 +73,21 @@ def get_deribit_pc_ratio(currency="BTC"):
             if ratio is None:
                 return "N/A", "neutral"
             if ratio < 0.40:
-                return "⚠ Euforia Estrema", "warning"       # call frenzy — possibile top
+                return "⚠ Extreme Euphoria", "warning"      # call frenzy — possibile top
             elif ratio < 0.50:
                 return "Bullish / Call Dominance", "positive"
             elif ratio < 0.65:
-                return "Moderatamente Bullish", "positive"   # range normale bull run Deribit
+                return "Moderately Bullish", "positive"      # range normale bull run Deribit
             elif ratio < 0.75:
-                return "Neutro", "neutral"                   # baseline crypto-adjusted
+                return "Neutral", "neutral"                  # baseline crypto-adjusted
             elif ratio < 0.90:
-                return "Cauto / Hedge in Aumento", "neutral"
+                return "Cautious / Rising Hedges", "neutral"
             elif ratio < 1.00:
-                return "Bearish / Posizionamento Difensivo", "negative"
+                return "Bearish / Defensive Positioning", "negative"
             elif ratio < 1.20:
-                return "Paura Elevata", "negative"
+                return "Elevated Fear", "negative"
             else:
-                return "⚠ Paura Estrema / Possibile Bottom", "warning"
+                return "⚠ Extreme Fear / Possible Bottom", "warning"
 
         vol_label, vol_dir = interpret(pc_vol)
         oi_label, oi_dir = interpret(pc_oi)
@@ -406,7 +406,9 @@ KEY_STOCKS = _build_earnings_ticker_universe()
 KEY_STOCKS.update(_CRYPTO_PROXIES)   # garantiti sempre, anche se non nel Nasdaq-100/S&P top 100
 
 
-_EARNINGS_CACHE_PATH = "/tmp/earnings_results_cache.json"
+# v2 (18/11/2026): nuova struttura "yesterday" (Finnhub + yfinance) → path nuovo, così
+# una cache della stessa giornata scritta dalla versione vecchia non viene riusata.
+_EARNINGS_CACHE_PATH = "/tmp/earnings_results_cache_v2.json"
 
 def _load_earnings_cache():
     """Cache valida solo per la stessa data (ora Roma) — dati earnings cambiano giorno per giorno."""
@@ -467,6 +469,248 @@ def _fetch_nasdaq_earnings_day(date_obj):
     return rows
 
 
+# ─────────────────────────────────────────────────────────────
+# RISULTATI DI IERI — fonti verificate il 18/11/2026 contro investing.com
+# ─────────────────────────────────────────────────────────────
+# PERCHÉ NON NASDAQ: la mattina dopo la trimestrale il campo "eps" del bulk Nasdaq contiene
+# l'EPS dello STESSO trimestre dell'ANNO PRIMA (17/11: 0 righe su 46 con surprise; NVDA $1.24
+# invece di $2.68) e Nasdaq aggiorna nell'arco di giorni. Nasdaq resta solo per l'ELENCO e
+# l'orario PRE/AMC.
+#   • Actual EPS + ricavi  → Finnhub /calendar/earnings (1 richiesta/giorno, già aggiornato la
+#                             mattina dopo, identico a investing sui titoli USA); fallback EPS yfinance.
+#   • Stima EPS            → yfinance (consenso che coincide con investing); fallback snapshot/Finnhub.
+#   • Stima ricavi         → yfinance SALVATA PRIMA della pubblicazione (dopo, yfinance passa al
+#                             trimestre successivo); fallback consenso Finnhub, marcato "F".
+#   • Crescita YoY ricavi  → actual vs stesso trimestre anno prima (storico ricavi yfinance).
+#   • Reazione prezzo      → AMC: ultimo prezzo after-hours vs chiusura ufficiale; PRE: seduta.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_EST_SNAPSHOT_PATH = os.path.join(_PROJECT_ROOT, ".cache", "earnings_estimates.json")
+_ET_TZ = pytz.timezone("America/New_York")
+
+
+def _load_est_snapshots():
+    try:
+        with open(_EST_SNAPSHOT_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_est_snapshots(snaps):
+    """Snapshot persistenti (NON in /tmp: devono sopravvivere al riavvio fino al giorno dopo)."""
+    try:
+        cutoff = (datetime.now(ROME_TZ).date() - timedelta(days=30)).isoformat()
+        snaps = {k: v for k, v in snaps.items() if k.split("|")[-1] >= cutoff}
+        os.makedirs(os.path.dirname(_EST_SNAPSHOT_PATH), exist_ok=True)
+        with open(_EST_SNAPSHOT_PATH, "w") as f:
+            json.dump(snaps, f, indent=1, sort_keys=True)
+    except Exception as e:
+        print(f"[Extras] Earnings estimate snapshot save error: {e}")
+
+
+def _is_pre_release(report_date, release_label):
+    """True se ADESSO la trimestrale del giorno report_date non è ancora uscita (ora USA)."""
+    now_et = datetime.now(_ET_TZ)
+    if report_date > now_et.date():
+        return True
+    if report_date < now_et.date():
+        return False
+    # Stesso giorno: PRE esce dalle ~06:00 ET, AMC dalle 16:00 ET. Orario ignoto → prudente (06:00).
+    cutoff_h = 16 if release_label == "After-Market" else 6
+    return now_et.hour < cutoff_h
+
+
+def _finnhub_earnings_day(d):
+    """Calendario Finnhub di un giorno: {symbol: row} con epsActual/epsEstimate/revenueActual/revenueEstimate."""
+    key = getattr(config, "FINNHUB_API_KEY", "") or ""
+    if not key or "YOUR_" in key:
+        return {}
+    try:
+        r = requests.get("https://finnhub.io/api/v1/calendar/earnings",
+                         params={"from": d.isoformat(), "to": d.isoformat(), "token": key}, timeout=20)
+        r.raise_for_status()
+        return {e.get("symbol"): e for e in (r.json().get("earningsCalendar") or []) if e.get("date") == d.isoformat()}
+    except Exception as e:
+        print(f"[Extras] Finnhub earnings calendar error ({d}): {e}")
+        return {}
+
+
+def _num(v):
+    try:
+        f = float(v)
+        return None if f != f else f   # NaN → None
+    except (TypeError, ValueError):
+        return None
+
+
+def _yf_reported(t, d):
+    """(EPS riportato, stima EPS) di yfinance per la trimestrale pubblicata il giorno d (data USA)."""
+    try:
+        ed = t.get_earnings_dates(limit=12)
+        if ed is None or ed.empty:
+            return None, None
+        idx = ed.index.tz_convert(_ET_TZ) if ed.index.tz is not None else ed.index
+        for ts, (_, row) in zip(idx, ed.iterrows()):
+            if ts.date() == d:
+                return _num(row.get("Reported EPS")), _num(row.get("EPS Estimate"))
+    except Exception:
+        pass
+    return None, None
+
+
+def _revenue_yoy(t, d, rev_actual):
+    """
+    Crescita YoY dei ricavi del trimestre riportato il giorno d + YoY del trimestre precedente
+    (per dire se accelera o rallenta). Storico trimestrale yfinance (≈5 trimestri).
+    Il trimestre "anno prima" è il più recente chiuso tra d-365-100gg e d-365gg.
+    """
+    try:
+        rev = t.quarterly_income_stmt.loc["Total Revenue"].dropna()
+        hist = sorted(((ts.date(), float(v)) for ts, v in rev.items()), reverse=True)
+    except Exception:
+        return None, None
+    if not hist:
+        return None, None
+
+    def _pick(lo, hi):
+        cands = [(dt, v) for dt, v in hist if lo <= dt <= hi]
+        return cands[0] if cands else None
+
+    yago = _pick(d - timedelta(days=465), d - timedelta(days=365))
+    yoy = None
+    if yago and yago[1] and rev_actual:
+        yoy = (rev_actual / yago[1] - 1) * 100
+        if not (-90 <= yoy <= 400):   # valute/ADR disallineati → meglio niente
+            yoy = None
+
+    # Trimestre precedente: il più recente chiuso PRIMA del trimestre riportato
+    # (se yfinance ha già il trimestre nuovo, lo salto).
+    prev = _pick(d - timedelta(days=200), d - timedelta(days=101))
+    prev_yoy = None
+    if prev:
+        prev_yago = _pick(prev[0] - timedelta(days=380), prev[0] - timedelta(days=350))
+        if prev_yago and prev_yago[1]:
+            prev_yoy = (prev[1] / prev_yago[1] - 1) * 100
+            if not (-90 <= prev_yoy <= 400):
+                prev_yoy = None
+    return yoy, prev_yoy
+
+
+def _price_reaction(t, d, release_label):
+    """
+    Reazione del prezzo alla trimestrale del giorno d.
+    AMC → ultimo prezzo after-hours (16:00–20:00 ET) vs chiusura ufficiale di d.
+    PRE / orario ignoto → variazione della seduta di d (chiusura d vs chiusura precedente).
+    """
+    try:
+        daily = t.history(period="10d", interval="1d", auto_adjust=False)
+        daily.index = daily.index.tz_convert(_ET_TZ) if daily.index.tz is not None else daily.index
+        days = [(ts.date(), float(c)) for ts, c in daily["Close"].items()]
+        close_d = next((c for dt, c in days if dt == d), None)
+        if close_d is None:
+            return None, None
+        if release_label == "After-Market":
+            # Barre da 1 MINUTO: quelle da 5m/15m di Yahoo in after-hours sono troncate
+            # (18/11: NVDA 5m finiva alle 18:55 a 161.46, 1m arriva alle 19:59 a 162.94).
+            intr = t.history(period="5d", interval="1m", prepost=True, auto_adjust=False)
+            intr.index = intr.index.tz_convert(_ET_TZ)
+            ah = intr[(intr.index.date == d) & (intr.index.hour >= 16) & (intr.index.hour < 20)]
+            if ah.empty:
+                return None, None
+            return ((float(ah["Close"].iloc[-1]) / close_d - 1) * 100,
+                    f"after-hours {ah.index[-1].strftime('%H:%M')} ET")
+        prev_close = next((c for dt, c in reversed(days) if dt < d), None)
+        if not prev_close:
+            return None, None
+        return (close_d / prev_close - 1) * 100, "session"
+    except Exception:
+        return None, None
+
+
+def _fmt_money_ccy(val, ccy):
+    if val is None:
+        return "—"
+    if not ccy or ccy == "USD":
+        return _fmt_rev(val)
+    s = _fmt_rev(val).replace("$", "")
+    return f"{ccy} {s}"
+
+
+def _yesterday_result(sym, d, release_label, nasdaq_eps_est, fh_row, snapshot):
+    """Costruisce la riga "risultati di ieri" per un ticker. Nessun numero dubbio: se manca → None."""
+    t = yf.Ticker(sym)
+    yf_act, yf_est = _yf_reported(t, d)
+    fh_row = fh_row or {}
+
+    # ── EPS ──
+    fh_act, fh_est = _num(fh_row.get("epsActual")), _num(fh_row.get("epsEstimate"))
+    eps_act = fh_act if fh_act is not None else yf_act
+    # Disaccordo tra fonti (≈10% dei casi nel backtest 28/10–17/11, aziende con voci straordinarie):
+    # nessuna delle due ha sempre ragione (GOOGL: giusto Yahoo; RIOT/NBIS: giusto Finnhub) →
+    # NON scegliamo in silenzio: il report mostra entrambi i valori con ⚠ e sorpresa in grigio.
+    eps_conflict = None
+    if fh_act is not None and yf_act is not None and abs(fh_act - yf_act) > max(0.03, abs(yf_act) * 0.05):
+        eps_conflict = yf_act
+        print(f"[Extras] Earnings {sym}: EPS actual disagree Finnhub {fh_act} vs Yahoo {yf_act} (shown both)")
+    eps_est = next((v for v in (yf_est, _num((snapshot or {}).get("eps_est")), fh_est, nasdaq_eps_est) if v is not None), None)
+
+    # ── Ricavi ──
+    rev_act = _num(fh_row.get("revenueActual"))
+    fh_rev_est = _num(fh_row.get("revenueEstimate"))
+    snap_rev = _num((snapshot or {}).get("rev_est"))
+    # Stima ricavi SOLO dallo snapshot Yahoo pre-uscita. Il consenso ricavi Finnhub NON si usa come
+    # fallback: test 2–4/11/2026 su 52 società vs investing → beat/miss ricavi concorde solo 34/52
+    # (stime Finnhub sistematicamente più alte). Senza snapshot → "—", nessuna sorpresa.
+    # Finnhub serve solo come controllo di coerenza (snapshot >15% lontano = trimestre sbagliato).
+    rev_est, rev_src = None, ""
+    if snap_rev and (fh_rev_est is None or abs(snap_rev / fh_rev_est - 1) <= 0.15):
+        rev_est = snap_rev
+
+    ccy = None
+    if rev_act is not None:
+        try:
+            ccy = (t.info or {}).get("financialCurrency")
+        except Exception:
+            ccy = None
+
+    yoy, prev_yoy = _revenue_yoy(t, d, rev_act) if rev_act else (None, None)
+    reaction, reaction_kind = _price_reaction(t, d, release_label)
+
+    def _surp(a, e):
+        if a is None or e is None or e == 0:
+            return None
+        return (a - e) / abs(e) * 100
+
+    eps_surp, rev_surp = _surp(eps_act, eps_est), _surp(rev_act, rev_est)
+    # Sorpresa enorme con stima non vicina a zero = quasi sempre GAAP vs rettificato (UBER 4/11:
+    # tutte le fonti gratuite $0.25 GAAP vs stima rettificata $0.90 → falso −72%). Avviso, non verdetto.
+    eps_gap_warn = (eps_surp is not None and eps_conflict is None and eps_est is not None
+                    and abs(eps_est) >= 0.25 and abs(eps_surp) > 40)
+    return {
+        "eps_actual_v": eps_act, "eps_estimate_v": eps_est, "eps_surprise_v": eps_surp,
+        "rev_actual_v": rev_act, "rev_estimate_v": rev_est, "rev_surprise_v": rev_surp,
+        "rev_est_src":  rev_src,
+        "eps_actual":   f"${eps_act:.2f}" if eps_act is not None else "pending",
+        "eps_estimate": f"${eps_est:.2f}" if eps_est is not None else "—",
+        "eps_surprise": f"{eps_surp:+.1f}%" if eps_surp is not None else "—",
+        "eps_conflict": f"${eps_conflict:.2f}" if eps_conflict is not None else "",
+        "eps_gap_warn": eps_gap_warn,
+        "rev_actual":   _fmt_money_ccy(rev_act, ccy) if rev_act is not None else "—",
+        "rev_estimate": _fmt_money_ccy(rev_est, ccy) if rev_est is not None else "—",
+        "rev_surprise": f"{rev_surp:+.1f}%" if rev_surp is not None else "—",
+        "rev_yoy":      f"{yoy:+.1f}%" if yoy is not None else "—",
+        "rev_yoy_prev": f"{prev_yoy:+.1f}%" if prev_yoy is not None else "",
+        "rev_yoy_trend": (None if yoy is None or prev_yoy is None
+                          else "accel" if yoy > prev_yoy + 0.5 else "decel" if yoy < prev_yoy - 0.5 else "flat"),
+        "reaction":     f"{reaction:+.2f}%" if reaction is not None else "—",
+        "reaction_v":   reaction,
+        "reaction_kind": reaction_kind or "",
+        # compat: "beat" = EPS sopra/sotto stima (pari → None, colore neutro)
+        "beat": (None if eps_surp is None or abs(eps_surp) < 1e-9 or eps_conflict is not None or eps_gap_warn
+                 else eps_surp > 0),
+    }
+
+
 _TIME_LABEL_MAP = {
     "time-pre-market":   "Pre-Market",
     "time-after-hours":  "After-Market",
@@ -500,6 +744,9 @@ def get_earnings_this_week():
     # yesterday: 1 giorno, today: 1 giorno, upcoming: 7 giorni → 9 richieste totali
     dates_to_fetch = [yesterday, today] + [today + timedelta(days=i) for i in range(1, 8)]
 
+    snapshots = _load_est_snapshots()
+    yesterday_jobs = []   # (sym, name, cat, cat_label, release_label, nasdaq_eps_est)
+
     for d in dates_to_fetch:
         try:
             rows = _fetch_nasdaq_earnings_day(d)
@@ -517,37 +764,32 @@ def get_earnings_this_week():
             eps_est = _parse_money(row.get("epsForecast"))
 
             if d == yesterday:
-                eps_actual = _parse_money(row.get("eps"))
-                surprise   = _parse_money(row.get("surprise"))
-                # Fallback yfinance quando Nasdaq.com non fornisce EPS est / revenue
-                # (tipico società estere del Nasdaq-100 con copertura scarsa).
-                yf_eps, yf_rev = None, None
-                if eps_est is None:
-                    yf_eps, yf_rev = _yf_earnings_fallback(sym)
-                eps_est_final = eps_est if eps_est is not None else yf_eps
-                beat = None
-                if eps_actual is not None and eps_est_final is not None and eps_est_final != 0:
-                    beat = eps_actual >= eps_est_final
-                earnings_yesterday.append({
-                    "symbol":        sym,
-                    "name":          name,
-                    "category":      cat,
-                    "cat_label":     cat_label,
-                    "date_fmt":      d.strftime("%a %d %b"),
-                    "release_label": release_label,
-                    "eps_actual":    f"${eps_actual:.2f}"    if eps_actual    is not None else "—",
-                    "eps_estimate":  f"${eps_est_final:.2f}" if eps_est_final is not None else "—",
-                    "surprise":      f"{surprise:+.1f}%"     if surprise      is not None else "—",
-                    "beat":          beat,
-                    "rev_estimate":  _fmt_rev(yf_rev) if yf_rev is not None else "—",
-                })
+                # NB: il campo "eps" di Nasdaq la mattina dopo è l'EPS dell'anno prima → NON usato.
+                yesterday_jobs.append((sym, name, cat, cat_label, release_label, eps_est))
             else:
                 # Righe forward (today + upcoming): chiamo SEMPRE yfinance per la revenue
                 # estimate (Nasdaq.com non la fornisce). L'EPS di yfinance si usa solo se
                 # Nasdaq non ce l'ha. Le chiamate avvengono 1 volta/giorno (result cachato),
                 # e solo per le ~7-20 società effettivamente mostrate → no rate-limit.
                 yf_eps, yf_rev = _yf_earnings_fallback(sym)
-                eps_final = eps_est if eps_est is not None else yf_eps
+                # Stima EPS: yfinance PRIMA (test 18/11 su 44 società: coincide con investing entro 2%
+                # in 34/44; Nasdaq dava es. PANW $0.52 vs $0.97). Nasdaq solo se yfinance non c'è.
+                eps_final = _num(yf_eps) if _num(yf_eps) is not None else eps_est
+                # Snapshot del consenso PRIMA dell'uscita: dopo la trimestrale yfinance passa al
+                # trimestre successivo, quindi domattina la stima ricavi "giusta" esiste solo qui.
+                snap_key = f"{sym}|{d.isoformat()}"
+                if _is_pre_release(d, release_label):
+                    if yf_rev or yf_eps is not None:
+                        snapshots[snap_key] = {
+                            "rev_est": _num(yf_rev), "eps_est": _num(yf_eps),
+                            "saved_at": datetime.now(ROME_TZ).isoformat(timespec="minutes"),
+                        }
+                else:
+                    # Già pubblicata (es. report lanciato nel pomeriggio): yfinance mostra ormai il
+                    # trimestre SUCCESSIVO → uso lo snapshot pre-uscita, altrimenti EPS Nasdaq e ricavi N/A.
+                    snap = snapshots.get(snap_key) or {}
+                    eps_final = _num(snap.get("eps_est")) if _num(snap.get("eps_est")) is not None else eps_est
+                    yf_rev = snap.get("rev_est")
                 entry = {
                     "symbol":        sym,
                     "name":          name,
@@ -567,6 +809,48 @@ def get_earnings_this_week():
                     earnings_today.append(entry)
                 else:
                     earnings_upcoming.append(entry)
+
+    # ── Risultati di ieri: Finnhub (1 richiesta) + yfinance per ticker, in parallelo ──
+    fh_day = _finnhub_earnings_day(yesterday)
+    # Elenco = unione Nasdaq ∪ Finnhub (Nasdaq a metà aggiornamento può perdere righe/orari).
+    # GOOG e GOOGL = stessa società (due classi di azioni) → tengo solo GOOGL.
+    if any(j[0] == "GOOGL" for j in yesterday_jobs) or "GOOGL" in fh_day:
+        yesterday_jobs = [j for j in yesterday_jobs if j[0] != "GOOG"]
+    _seen = {j[0] for j in yesterday_jobs}
+    for sym in fh_day:
+        if sym in universe and sym not in _seen:
+            cat, cat_label = _earnings_category(sym)
+            yesterday_jobs.append((sym, KEY_STOCKS.get(sym, sym), cat, cat_label, "", None))
+    # Orario: Finnhub "hour" (bmo/amc/dmh) prima; Nasdaq solo se Finnhub non lo dà
+    # (18/11: Nasdaq è passato da "time-after-hours" a "time-not-supplied" per NVDA in giornata).
+    _FH_HOUR = {"bmo": "Pre-Market", "amc": "After-Market", "dmh": "During session"}
+    yesterday_jobs = [
+        (s, n, c, cl, _FH_HOUR.get((fh_day.get(s) or {}).get("hour", ""), rl), est)
+        for (s, n, c, cl, rl, est) in yesterday_jobs
+    ]
+
+    if yesterday_jobs:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _job(j):
+            sym, name, cat, cat_label, release_label, nq_est = j
+            try:
+                res = _yesterday_result(sym, yesterday, release_label, nq_est,
+                                        fh_day.get(sym), snapshots.get(f"{sym}|{yesterday.isoformat()}"))
+            except Exception as e:
+                print(f"[Extras] Earnings result error {sym}: {e}")
+                res = {"eps_actual": "pending", "eps_estimate": "—", "eps_surprise": "—",
+                       "rev_actual": "—", "rev_estimate": "—", "rev_surprise": "—",
+                       "rev_yoy": "—", "rev_yoy_prev": "", "rev_yoy_trend": None,
+                       "reaction": "—", "reaction_kind": "", "rev_est_src": "", "beat": None}
+            res.update({"symbol": sym, "name": name, "category": cat, "cat_label": cat_label,
+                        "date_fmt": yesterday.strftime("%a %d %b"), "release_label": release_label})
+            return res
+
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            earnings_yesterday = list(ex.map(_job, yesterday_jobs))
+
+    _save_est_snapshots(snapshots)
 
     earnings_upcoming.sort(key=lambda x: x["_sort_date"])
     for e in earnings_today + earnings_upcoming:

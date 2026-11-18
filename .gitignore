@@ -7,3 +7,4 @@ config_local.py
 *.csv
 *.html
 .DS_Store
+.cache/

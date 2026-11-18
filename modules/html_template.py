@@ -797,6 +797,72 @@ def _earnings_row(e, badge=None):
     </div>"""
 
 
+def _results_table_header():
+    return """
+    <div class="etable-header etable-res">
+        <span class="etcol-sym">Ticker</span>
+        <span class="etcol-name">Company</span>
+        <span class="etcol-time">Time</span>
+        <span>EPS act. / est.</span>
+        <span>EPS surp.</span>
+        <span>Revenue act. / est.</span>
+        <span>Rev. surp.</span>
+        <span>Rev. YoY</span>
+        <span>Price reaction</span>
+    </div>"""
+
+
+def _sign_cls(v):
+    if v is None or abs(v) < 1e-9:
+        return "neutral-c"
+    return "positive" if v > 0 else "negative"
+
+
+def _results_row(e):
+    cat, cat_label = e.get("category", "other"), e.get("cat_label", "")
+    cat_badge = f'<span class="cat-tag cat-{cat}">{cat_label}</span>' if cat_label else ""
+    rl = e.get("release_label", "")
+    time_badge = ('<span class="release-badge release-pre">PRE</span>' if rl == "Pre-Market" else
+                  '<span class="release-badge release-amc">AMC</span>' if rl == "After-Market" else "—")
+
+    conflict = e.get("eps_conflict", "")
+    gap_warn = bool(e.get("eps_gap_warn"))
+    eps_cls = "neutral-c" if (conflict or gap_warn) else _sign_cls(e.get("eps_surprise_v"))
+    if conflict:
+        conflict_html = (f'<span class="res-sub res-warn" title="Finnhub and Yahoo report different EPS figures '
+                         f'(often adjusted vs GAAP); check the company release">⚠ Yahoo: {conflict}</span>')
+    elif gap_warn:
+        conflict_html = ('<span class="res-sub res-warn" title="Very large surprise vs a non-trivial estimate: '
+                         'often GAAP EPS compared with an adjusted consensus; check the company release">'
+                         '⚠ large gap: GAAP vs adj.?</span>')
+    else:
+        conflict_html = ""
+    conflict = conflict or gap_warn
+    rev_cls = _sign_cls(e.get("rev_surprise_v"))
+    src_mark = ""
+
+    trend = e.get("rev_yoy_trend")
+    arrow = {"accel": ' <span class="positive">↑</span>', "decel": ' <span class="negative">↓</span>'}.get(trend, "")
+    prev = e.get("rev_yoy_prev")
+    prev_html = f'<span class="res-sub">prev. qtr {prev}</span>' if prev else ""
+
+    kind = e.get("reaction_kind", "")
+    kind_html = f'<span class="res-sub">{kind}</span>' if kind else ""
+
+    return f"""
+    <div class="etable-row etable-res">
+        <span class="etcol-sym"><span class="earning-sym">{e['symbol']}</span>{cat_badge}</span>
+        <span class="etcol-name earning-name">{e['name']}</span>
+        <span class="etcol-time">{time_badge}</span>
+        <span class="res-cell res-stack"><span><b class="{eps_cls}">{e.get('eps_actual','—')}</b> <span class="res-est">/ {e.get('eps_estimate','—')}</span></span>{conflict_html}</span>
+        <span class="res-cell {eps_cls}">{e.get('eps_surprise','—')}{' ⚠' if conflict else ''}</span>
+        <span class="res-cell"><b class="{rev_cls}">{e.get('rev_actual','—')}</b> <span class="res-est">/ {e.get('rev_estimate','—')}{src_mark}</span></span>
+        <span class="res-cell {rev_cls}">{e.get('rev_surprise','—')}</span>
+        <span class="res-cell res-stack"><span>{e.get('rev_yoy','—')}{arrow}</span>{prev_html}</span>
+        <span class="res-cell res-stack"><span class="{_sign_cls(e.get('reaction_v'))}">{e.get('reaction','—')}</span>{kind_html}</span>
+    </div>"""
+
+
 def render_earnings(earnings_data):
     if not earnings_data:
         return ""
@@ -814,10 +880,19 @@ def render_earnings(earnings_data):
     if yesterday_list:
         html += '<div class="earnings-section-label">📋 Yesterday\'s results</div>'
         html += '<div class="etable">'
-        html += _earnings_table_header()
+        html += _results_table_header()
         for e in yesterday_list:
-            html += _earnings_row(e)
+            html += _results_row(e)
         html += "</div>"
+        html += ('<div class="res-note">Actuals (EPS and revenue): Finnhub, Yahoo fallback · '
+                 'Estimates: Yahoo Finance consensus (revenue estimate captured before release; '
+                 '"—" if it was not captured) · '
+                 'Rev. YoY vs the same quarter a year earlier; ↑/↓ = accelerating / decelerating vs the previous quarter · '
+                 'Price reaction: after-market reporters = last after-hours price vs close; '
+                 'pre-market reporters = that day\'s session · '
+                 '⚠ = sources disagree on EPS, or the surprise is implausibly large (often GAAP vs adjusted): '
+                 'check the company release · '
+                 '"pending" = not yet published by the sources.</div>')
 
     # ── Oggi: urgente ──
     if today_list:
@@ -1232,6 +1307,15 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .etcol-date{{color:var(--acc);font-size:10px}}
 .etcol-time{{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--text1)}}
 .etcol-eps,.etcol-rev,.etcol-surp{{font-weight:600;font-size:11px}}
+.etable-header.etable-res,.etable-row.etable-res{{grid-template-columns:100px minmax(90px,1fr) 46px 120px 70px 150px 70px 105px 95px}}
+.res-cell{{font-size:11px;font-weight:600;white-space:nowrap}}
+.res-cell b{{font-weight:900}}
+.res-est{{color:var(--text3);font-weight:500}}
+.res-stack{{display:flex;flex-direction:column;line-height:1.25}}
+.res-sub{{font-size:9px;color:var(--text3);font-weight:500}}
+.est-src{{font-size:8px;color:var(--acc);margin-left:1px}}
+.res-warn{{color:#f39c12}}
+.res-note{{font-size:9px;color:var(--text3);margin:2px 2px 12px;line-height:1.5}}
 .release-badge{{padding:1px 5px;border-radius:3px;font-size:8px;font-weight:700;letter-spacing:.5px;white-space:nowrap}}
 .release-pre{{background:#3498db22;color:#3498db;border:1px solid #3498db}}
 .release-amc{{background:#9b59b622;color:#a855f7;border:1px solid #9b59b6}}
