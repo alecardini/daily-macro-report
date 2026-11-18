@@ -808,6 +808,8 @@ def _results_table_header():
         <span>Revenue act. / est.</span>
         <span>Rev. surp.</span>
         <span>Rev. YoY</span>
+        <span>Guidance (next Q)</span>
+        <span>Gross margin</span>
         <span>Price reaction</span>
     </div>"""
 
@@ -849,6 +851,26 @@ def _results_row(e):
     kind = e.get("reaction_kind", "")
     kind_html = f'<span class="res-sub">{kind}</span>' if kind else ""
 
+    # Guidance: colore = sopra/sotto il consenso del trimestre successivo (±1% = in linea, neutro)
+    gv = e.get("guid_vs_v")
+    guid_cls = ("neutral-c" if gv is None or abs(gv) < 1 else "positive" if gv > 0 else "negative")
+    if e.get("guid_main") in ("FY only", "none in release", "—"):
+        guid_cls = "res-est"
+    subs = [s for s in (e.get("guid_sub", ""), e.get("guid_note", "")) if s]
+    guid_sub_html = "".join(f'<span class="res-sub">{s}</span>' for s in subs)
+    gm_arrow = {"up": ' <span class="positive">↑</span>', "down": ' <span class="negative">↓</span>'}.get(e.get("gm_trend"), "")
+    gm_sub_html = f'<span class="res-sub">{e["gm_guid"]}{gm_arrow}</span>' if e.get("gm_guid") else ""
+
+    # Tooltip con la frase ORIGINALE del comunicato SEC (controllo umano in un secondo)
+    import html as _h
+    def _tip(q, label):
+        if not q:
+            return "", ""
+        return " has-quote", f' title="{_h.escape(label + ": " + q, quote=True)}"'
+    guid_q_cls, guid_title = _tip(e.get("guid_quote", ""), "From the company release")
+    gm_parts = [p for p in (e.get("gm_quote", ""), e.get("guid_quote", "") if e.get("gm_guid") else "") if p]
+    gm_q_cls, gm_title = _tip(" | ".join(dict.fromkeys(gm_parts)), "From the company release")
+
     return f"""
     <div class="etable-row etable-res">
         <span class="etcol-sym"><span class="earning-sym">{e['symbol']}</span>{cat_badge}</span>
@@ -859,6 +881,8 @@ def _results_row(e):
         <span class="res-cell"><b class="{rev_cls}">{e.get('rev_actual','—')}</b> <span class="res-est">/ {e.get('rev_estimate','—')}{src_mark}</span></span>
         <span class="res-cell {rev_cls}">{e.get('rev_surprise','—')}</span>
         <span class="res-cell res-stack"><span>{e.get('rev_yoy','—')}{arrow}</span>{prev_html}</span>
+        <span class="res-cell res-stack{guid_q_cls}"{guid_title}><span class="{guid_cls}">{e.get('guid_main','—')}</span>{guid_sub_html}</span>
+        <span class="res-cell res-stack{gm_q_cls}"{gm_title}><span>{e.get('gm_now','—')}</span>{gm_sub_html}</span>
         <span class="res-cell res-stack"><span class="{_sign_cls(e.get('reaction_v'))}">{e.get('reaction','—')}</span>{kind_html}</span>
     </div>"""
 
@@ -888,6 +912,11 @@ def render_earnings(earnings_data):
                  'Estimates: Yahoo Finance consensus (revenue estimate captured before release; '
                  '"—" if it was not captured) · '
                  'Rev. YoY vs the same quarter a year earlier; ↑/↓ = accelerating / decelerating vs the previous quarter · '
+                 'Guidance (next Q) and gross margin: read from the company\'s official release filed with the SEC (hover a dotted value to see the original sentence), '
+                 'shown only when every figure appears verbatim in the release (adjusted figures preferred); '
+                 'compared with the Yahoo consensus for that quarter captured before the release '
+                 '(no comparison if it was not captured: estimates are revised within hours of the release) · '
+                 '"FY only" = the company gave full-year guidance only · ↑/↓ next to the margin = guided margin above/below the current one · '
                  'Price reaction: after-market reporters = last after-hours price vs close; '
                  'pre-market reporters = that day\'s session · '
                  '⚠ = sources disagree on EPS, or the surprise is implausibly large (often GAAP vs adjusted): '
@@ -1309,7 +1338,8 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .etcol-date{{color:var(--acc);font-size:10px}}
 .etcol-time{{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--text1)}}
 .etcol-eps,.etcol-rev,.etcol-surp{{font-weight:600;font-size:11px}}
-.etable-header.etable-res,.etable-row.etable-res{{grid-template-columns:100px minmax(90px,1fr) 46px 120px 70px 150px 70px 105px 95px}}
+.etable-header.etable-res,.etable-row.etable-res{{grid-template-columns:86px minmax(70px,1fr) 42px 110px 62px 135px 62px 98px 170px 98px 92px}}
+.etable-res .res-cell{{white-space:normal}}
 .res-cell{{font-size:11px;font-weight:600;white-space:nowrap}}
 .res-cell b{{font-weight:900}}
 .res-est{{color:var(--text3);font-weight:500}}
@@ -1317,6 +1347,7 @@ body{{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',C
 .res-sub{{font-size:9px;color:var(--text3);font-weight:500}}
 .est-src{{font-size:8px;color:var(--acc);margin-left:1px}}
 .res-warn{{color:#f39c12}}
+.has-quote{{cursor:help}}.has-quote>span:first-child{{text-decoration:underline dotted;text-underline-offset:3px}}
 .res-note{{font-size:9px;color:var(--text3);margin:2px 2px 12px;line-height:1.5}}
 .release-badge{{padding:1px 5px;border-radius:3px;font-size:8px;font-weight:700;letter-spacing:.5px;white-space:nowrap}}
 .release-pre{{background:#3498db22;color:#3498db;border:1px solid #3498db}}

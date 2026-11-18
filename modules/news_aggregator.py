@@ -296,21 +296,25 @@ def fetch_newsapi(category="macro", hours_back=24):
     return articles
 
 
-def _gemini_generate(prompt, max_tokens=220):
+def _gemini_generate(prompt, max_tokens=220, temperature=0.3, json_mode=False, timeout=25):
     """
     Chiamata a Gemini (gratis). Fallback sicuro: stringa vuota se key manca o API
     non risponde (429/timeout/ecc.). Thinking disattivato → risposta piena nel budget.
+    json_mode=True → risposta forzata in JSON (usato per l'estrazione della guidance).
     """
     key = getattr(config, "GEMINI_API_KEY", "")
     if not key or key.startswith("YOUR_"):
         return ""
+    gen_cfg = {
+        "temperature": temperature,
+        "maxOutputTokens": max_tokens,
+        "thinkingConfig": {"thinkingBudget": 0},
+    }
+    if json_mode:
+        gen_cfg["responseMimeType"] = "application/json"
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": max_tokens,
-            "thinkingConfig": {"thinkingBudget": 0},
-        },
+        "generationConfig": gen_cfg,
     }
     # CATENA di modelli (resilienza). Su ogni modello: 1 retry sui transitori (503/5xx/timeout)
     # per superare uno spike breve; su 429 (quota di QUEL modello) o dopo il retry → passo al
@@ -322,7 +326,7 @@ def _gemini_generate(prompt, max_tokens=220):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
         for attempt in range(2):   # 2 tentativi per modello (1 retry sui transitori)
             try:
-                r = requests.post(url, json=body, timeout=25)
+                r = requests.post(url, json=body, timeout=timeout)
                 if r.status_code == 200:
                     cand = r.json().get("candidates", [{}])[0]
                     txt = "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", [])).strip()

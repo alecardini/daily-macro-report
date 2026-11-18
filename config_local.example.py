@@ -12,3 +12,7 @@ COINALYZE_API_KEY = "YOUR_COINALYZE_API_KEY_HERE"
 GEMINI_API_KEY    = "YOUR_GEMINI_API_KEY_HERE"
 FINNHUB_API_KEY   = "YOUR_FINNHUB_API_KEY_HERE"
 CMC_API_KEY       = "YOUR_CMC_API_KEY_HERE"
+
+# SEC EDGAR (gratis, nessuna chiave) richiede un contatto nello User-Agent: "Nome email".
+# Usato per leggere guidance e margini dai comunicati sugli utili. Facoltativo: senza, quelle colonne restano vuote.
+SEC_USER_AGENT    = "DailyMacroReport your.email@example.com"

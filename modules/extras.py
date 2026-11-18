@@ -558,6 +558,21 @@ def _yf_reported(t, d):
     return None, None
 
 
+def _yf_next_q_consensus(sym):
+    """
+    Consenso Yahoo del trimestre SUCCESSIVO (riga "+1q") — da salvare PRIMA dell'uscita, per
+    confrontarlo con la guidance. Ritorna (rev, eps) o (None, None).
+    """
+    try:
+        t = yf.Ticker(sym)
+        re_, ee = t.revenue_estimate, t.earnings_estimate
+        rev = _num(re_.loc["+1q", "avg"]) if re_ is not None and "+1q" in re_.index else None
+        eps = _num(ee.loc["+1q", "avg"]) if ee is not None and "+1q" in ee.index else None
+        return rev, eps
+    except Exception:
+        return None, None
+
+
 def _revenue_yoy(t, d, rev_actual):
     """
     Crescita YoY dei ricavi del trimestre riportato il giorno d + YoY del trimestre precedente
@@ -568,15 +583,16 @@ def _revenue_yoy(t, d, rev_actual):
         rev = t.quarterly_income_stmt.loc["Total Revenue"].dropna()
         hist = sorted(((ts.date(), float(v)) for ts, v in rev.items()), reverse=True)
     except Exception:
-        return None, None
+        return None, None, None
     if not hist:
-        return None, None
+        return None, None, None
 
     def _pick(lo, hi):
         cands = [(dt, v) for dt, v in hist if lo <= dt <= hi]
         return cands[0] if cands else None
 
     yago = _pick(d - timedelta(days=465), d - timedelta(days=365))
+    yago_rev = yago[1] if yago else None
     yoy = None
     if yago and yago[1] and rev_actual:
         yoy = (rev_actual / yago[1] - 1) * 100
@@ -593,7 +609,7 @@ def _revenue_yoy(t, d, rev_actual):
             prev_yoy = (prev[1] / prev_yago[1] - 1) * 100
             if not (-90 <= prev_yoy <= 400):
                 prev_yoy = None
-    return yoy, prev_yoy
+    return yoy, prev_yoy, yago_rev
 
 
 def _price_reaction(t, d, release_label):
@@ -673,8 +689,16 @@ def _yesterday_result(sym, d, release_label, nasdaq_eps_est, fh_row, snapshot):
         except Exception:
             ccy = None
 
-    yoy, prev_yoy = _revenue_yoy(t, d, rev_act) if rev_act else (None, None)
+    yoy, prev_yoy, yago_rev = _revenue_yoy(t, d, rev_act) if rev_act else (None, None, None)
     reaction, reaction_kind = _price_reaction(t, d, release_label)
+
+    # Consenso del trimestre SUCCESSIVO (per confrontarlo con la guidance): SOLO snapshot pre-uscita.
+    # NIENTE fallback "dopo l'uscita": 18/11 NVDA il consenso Yahoo è passato da $124.9B (mattina)
+    # a $130.8B (pomeriggio, analisti già allineati alla guidance $130B) → il confronto diceva
+    # "in linea" quando era +4% sopra. Senza snapshot → guidance mostrata senza confronto.
+    next_rev = _num((snapshot or {}).get("rev_est_next"))
+    next_eps = _num((snapshot or {}).get("eps_est_next"))
+    next_src = "pre-release" if (next_rev or next_eps is not None) else ""
 
     def _surp(a, e):
         if a is None or e is None or e == 0:
@@ -705,10 +729,66 @@ def _yesterday_result(sym, d, release_label, nasdaq_eps_est, fh_row, snapshot):
         "reaction":     f"{reaction:+.2f}%" if reaction is not None else "—",
         "reaction_v":   reaction,
         "reaction_kind": reaction_kind or "",
+        "ccy": ccy,
+        "next_rev_cons": next_rev, "next_eps_cons": next_eps, "next_cons_src": next_src,
         # compat: "beat" = EPS sopra/sotto stima (pari → None, colore neutro)
         "beat": (None if eps_surp is None or abs(eps_surp) < 1e-9 or eps_conflict is not None or eps_gap_warn
                  else eps_surp > 0),
     }
+
+
+def _guidance_fields(g, e):
+    """Dal risultato di earnings_guidance.get_guidance → campi pronti per il render (stringhe + valori)."""
+    out = {"guid_main": "—", "guid_sub": "", "guid_vs_v": None, "guid_note": "",
+           "gm_now": "—", "gm_guid": "", "gm_trend": None, "guid_quote": "", "gm_quote": ""}
+    if not g or g.get("status") != "ok":
+        return out
+    # Frasi ORIGINALI del comunicato (già verificate testualmente) → tooltip per il controllo umano
+    out["guid_quote"] = (g.get("guid") or {}).get("quote", "") or ""
+    out["gm_quote"] = (g.get("gm_current") or {}).get("quote", "") or ""
+    ccy = e.get("ccy")
+    gm = g.get("gm_current") or {}
+    if gm.get("value") is not None:
+        out["gm_now"] = f"{gm['value']:.1f}%"
+    gd = g.get("guid") or {}
+    if gd.get("gm_mid") is not None:
+        lo, hi = gd.get("gm_low"), gd.get("gm_high")
+        out["gm_guid"] = (f"guid. {lo:.1f}–{hi:.1f}%" if lo is not None and hi is not None and lo != hi
+                          else f"guid. ~{gd['gm_mid']:.1f}%")
+        if gm.get("value") is not None:
+            diff = gd["gm_mid"] - gm["value"]
+            out["gm_trend"] = "up" if diff > 0.25 else "down" if diff < -0.25 else "flat"
+
+    subs = []
+    if gd.get("rev_mid"):
+        lo, hi, mid = gd.get("rev_low"), gd.get("rev_high"), gd["rev_mid"]
+        out["guid_main"] = f"Rev {_fmt_money_ccy(mid, ccy)}"
+        if lo and hi and abs(hi - lo) / mid > 0.002:
+            subs.append(f"range {_fmt_money_ccy(lo, ccy)}–{_fmt_money_ccy(hi, ccy).replace('$', '')}")
+        cons = e.get("next_rev_cons")
+        if cons:
+            vs = (mid / cons - 1) * 100
+            out["guid_vs_v"] = vs
+            subs.append(f"vs est. {_fmt_money_ccy(cons, ccy)} ({vs:+.1f}%)")
+    out["guid_sub"] = " · ".join(subs)
+    if gd.get("eps_mid") is not None:
+        lo, hi, mid = gd.get("eps_low"), gd.get("eps_high"), gd["eps_mid"]
+        eps_txt = f"EPS ${lo:.2f}–{hi:.2f}" if lo is not None and hi is not None and lo != hi else f"EPS ${mid:.2f}"
+        cons = e.get("next_eps_cons")
+        if cons:
+            vs_e = (mid / cons - 1) * 100 if cons else None
+            eps_txt += f" vs est. ${cons:.2f}"
+            if out["guid_vs_v"] is None and vs_e is not None and abs(cons) >= 0.10:
+                out["guid_vs_v"] = vs_e
+        if out["guid_main"] == "—":
+            out["guid_main"] = eps_txt
+        else:
+            out["guid_sub"] = (out["guid_sub"] + " · " if out["guid_sub"] else "") + eps_txt
+    if out["guid_main"] == "—":
+        out["guid_main"] = "FY only" if g.get("only_fy") else "none in release"
+    elif out["guid_vs_v"] is None:
+        out["guid_note"] = "no pre-release est. to compare"
+    return out
 
 
 _TIME_LABEL_MAP = {
@@ -780,8 +860,10 @@ def get_earnings_this_week():
                 snap_key = f"{sym}|{d.isoformat()}"
                 if _is_pre_release(d, release_label):
                     if yf_rev or yf_eps is not None:
+                        nx_rev, nx_eps = _yf_next_q_consensus(sym)
                         snapshots[snap_key] = {
                             "rev_est": _num(yf_rev), "eps_est": _num(yf_eps),
+                            "rev_est_next": nx_rev, "eps_est_next": nx_eps,
                             "saved_at": datetime.now(ROME_TZ).isoformat(timespec="minutes"),
                         }
                 else:
@@ -849,6 +931,22 @@ def get_earnings_this_week():
 
         with ThreadPoolExecutor(max_workers=6) as ex:
             earnings_yesterday = list(ex.map(_job, yesterday_jobs))
+
+        # Fase B — guidance + margine lordo dal comunicato SEC (in SEQUENZA: una chiamata Gemini
+        # per società, evita i 429 del free tier; risultati in cache su disco per i rilanci).
+        try:
+            from modules.earnings_guidance import get_guidance
+        except Exception as e:
+            get_guidance = None
+            print(f"[Extras] Guidance module error: {e}")
+        for e in earnings_yesterday:
+            g = None
+            if get_guidance is not None:
+                try:
+                    g = get_guidance(e["symbol"], e["name"], yesterday, e.get("rev_actual_v"))
+                except Exception as ex_:
+                    print(f"[Extras] Guidance error {e['symbol']}: {ex_}")
+            e.update(_guidance_fields(g, e))
 
     _save_est_snapshots(snapshots)
 
