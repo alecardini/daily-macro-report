@@ -759,26 +759,40 @@ def _guidance_fields(g, e):
             diff = gd["gm_mid"] - gm["value"]
             out["gm_trend"] = "up" if diff > 0.25 else "down" if diff < -0.25 else "flat"
 
+    def _m(v):
+        # Più decimali della tabella principale: le forchette di guidance sono strette
+        # (PANW 3.530–3.550B veniva mostrato come "3.5B–3.5B").
+        if v is None:
+            return "—"
+        a = abs(v)
+        s = (f"{v/1e9:.3g}B" if a >= 1e9 else f"{v/1e6:.3g}M" if a >= 1e6 else f"{v:,.0f}")
+        if a >= 1e9 and a < 1e11:
+            s = f"{v/1e9:.2f}B"
+        return f"${s}" if not ccy or ccy == "USD" else f"{ccy} {s}"
+
     subs = []
     if gd.get("rev_mid"):
         lo, hi, mid = gd.get("rev_low"), gd.get("rev_high"), gd["rev_mid"]
-        out["guid_main"] = f"Rev {_fmt_money_ccy(mid, ccy)}"
+        out["guid_main"] = f"Rev {_m(mid)}"
         if lo and hi and abs(hi - lo) / mid > 0.002:
-            subs.append(f"range {_fmt_money_ccy(lo, ccy)}–{_fmt_money_ccy(hi, ccy).replace('$', '')}")
+            subs.append(f"range {_m(lo)}–{_m(hi).replace('$', '')}")
         cons = e.get("next_rev_cons")
-        if cons:
+        # Consenso implausibile (>25% dalla guidance) = dato Yahoo sbagliato/altro trimestre → niente confronto
+        if cons and abs(mid / cons - 1) <= 0.25:
             vs = (mid / cons - 1) * 100
             out["guid_vs_v"] = vs
-            subs.append(f"vs est. {_fmt_money_ccy(cons, ccy)} ({vs:+.1f}%)")
+            subs.append(f"vs est. {_m(cons)} ({vs:+.1f}%)")
     out["guid_sub"] = " · ".join(subs)
     if gd.get("eps_mid") is not None:
         lo, hi, mid = gd.get("eps_low"), gd.get("eps_high"), gd["eps_mid"]
         eps_txt = f"EPS ${lo:.2f}–{hi:.2f}" if lo is not None and hi is not None and lo != hi else f"EPS ${mid:.2f}"
         cons = e.get("next_eps_cons")
-        if cons:
-            vs_e = (mid / cons - 1) * 100 if cons else None
-            eps_txt += f" vs est. ${cons:.2f}"
-            if out["guid_vs_v"] is None and vs_e is not None and abs(cons) >= 0.10:
+        # Consenso EPS implausibile → niente confronto (19/11 PANW: Yahoo "+1q" $0.38 vs guidance
+        # $1.01–1.03 e EPS trimestre corrente $0.97 → dato Yahoo rotto, avrebbe detto "+168%").
+        if cons and abs(cons) >= 0.10 and abs(mid / cons - 1) <= 0.40:
+            vs_e = (mid / cons - 1) * 100
+            eps_txt += f" vs est. ${cons:.2f} ({vs_e:+.1f}%)"
+            if out["guid_vs_v"] is None:
                 out["guid_vs_v"] = vs_e
         if out["guid_main"] == "—":
             out["guid_main"] = eps_txt
@@ -899,8 +913,10 @@ def get_earnings_this_week():
     if any(j[0] == "GOOGL" for j in yesterday_jobs) or "GOOGL" in fh_day:
         yesterday_jobs = [j for j in yesterday_jobs if j[0] != "GOOG"]
     _seen = {j[0] for j in yesterday_jobs}
-    for sym in fh_day:
-        if sym in universe and sym not in _seen:
+    for sym, row in fh_day.items():
+        # Solo-Finnhub → entra SOLO se ha già l'actual (19/11: ROST datato 18/11 da Finnhub ma
+        # pubblica il 19 → compariva come "pending" tra i risultati di ieri).
+        if sym in universe and sym not in _seen and _num(row.get("epsActual")) is not None:
             cat, cat_label = _earnings_category(sym)
             yesterday_jobs.append((sym, KEY_STOCKS.get(sym, sym), cat, cat_label, "", None))
     # Orario: Finnhub "hour" (bmo/amc/dmh) prima; Nasdaq solo se Finnhub non lo dà
