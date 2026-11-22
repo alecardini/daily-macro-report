@@ -27,6 +27,14 @@ def fmt_large(val):
         return f"${val/1e6:.2f}M"
     return f"${val:,.0f}"
 
+def _fmt_flow_m(val_m):
+    """Flusso ETF in milioni → valore ASSOLUTO compatto ("$582.19M", "$0.2M"): il segno lo dà
+    già la freccia ▲/▼ del riquadro. Prima i negativi uscivano come "$-124,500,000" perché
+    fmt_large non gestiva i numeri < 0. Sotto $1M una decimale (precisione reale di farside)."""
+    a = abs(val_m)
+    return fmt_large(a * 1e6) if a >= 1 else f"${a:.1f}M"
+
+
 def fmt_price(val, decimals=2):
     if val is None:
         return "N/A"
@@ -167,76 +175,139 @@ def _save_farside_cache(asset_name, data):
 # $346.9M, ETH $2.5M invece di $104.5M. SoSoValue espone per OGNI valore `status`
 # ("1" = aggiornamento completato, l'"Update completed" del sito) e `lastUpdateDate` → il
 # dato si usa solo quando la giornata è chiusa, altrimenti si ripiega su farside.
-_SOSOVALUE_URL   = "https://api.sosovalue.xyz/openapi/v2/etf/currentEtfDataMetrics"
-_SOSOVALUE_TYPES = {"BTC": "us-btc-spot", "ETH": "us-eth-spot", "SOL": "us-sol-spot"}
+#
+# 22/11/2026 — MIGRAZIONE alla nuova API ufficiale con chiave. Il vecchio endpoint
+# api.sosovalue.xyz/openapi/v2 risponde 403 di Cloudflare anche con la chiave; i suoi retry
+# (3 per asset a ogni run) facevano bloccare da Cloudflare l'IP di casa → ora MAI retry su
+# 401/403/429, si passa subito a farside. Nella nuova API non c'è più `status`: i dati si
+# consolidano T+1 e la riga non ancora chiusa ha i campi di flusso a null → si prende la
+# riga più recente con il totale valorizzato (= giornata chiusa), quasi sempre il giorno
+# lavorativo precedente a quello di farside, ma mai un numero parziale.
+_SOSO_BASE        = "https://openapi.sosovalue.com/openapi/v1"
 _SOSOVALUE_MAX_STALE = 7      # giorni: oltre, il dato non è più attendibile
+_SOSO_MIN_GAP     = 0.7       # s tra due richieste (globale tra i thread): limite 100/min
+_SOSO_ETF_LIST_TTL = 7 * 86400
+_SOSO_ETF_LIST_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                   ".cache", "sosovalue_etf_list.json")
+import threading
+_soso_lock = threading.Lock()
+_soso_last = [0.0]
 
 
-def _soso_value(node, complete_only=True):
-    """Valore float da un campo SoSoValue {value,status,lastUpdateDate}; None se non chiuso."""
-    if not isinstance(node, dict) or node.get("value") in (None, ""):
-        return None
-    if complete_only and str(node.get("status")) != "1":
-        return None
+class _SosoHardStop(Exception):
+    """Chiave rifiutata / accesso negato / limite superato: non ritentare."""
+
+
+def _soso_key():
+    k = getattr(config, "SOSOVALUE_API_KEY", "") or ""
+    return k if k and not k.startswith("YOUR_") else None
+
+
+def _soso_get(path, params=None):
+    """GET sulla nuova API SoSoValue. Ritenta UNA volta solo su errori di rete/5xx
+    (blip DNS di questa macchina); su 401/403/429 si ferma subito."""
+    key = _soso_key()
+    if not key:
+        raise _SosoHardStop("chiave assente")
+    last = None
+    for attempt in range(2):
+        with _soso_lock:
+            wait = _SOSO_MIN_GAP - (time.time() - _soso_last[0])
+            if wait > 0:
+                time.sleep(wait)
+            _soso_last[0] = time.time()
+        try:
+            r = requests.get(_SOSO_BASE + path, params=params, timeout=15,
+                             headers={"x-soso-api-key": key, "Accept": "application/json"})
+        except requests.RequestException as e:
+            last = e
+            time.sleep(3)
+            continue
+        if r.status_code in (401, 403, 429):
+            raise _SosoHardStop(f"HTTP {r.status_code}")
+        if r.status_code >= 500:
+            last = f"HTTP {r.status_code}"
+            time.sleep(3)
+            continue
+        body = r.json() if "json" in (r.headers.get("content-type") or "") else {}
+        if r.status_code != 200 or body.get("code") != 0:
+            raise _SosoHardStop(f"HTTP {r.status_code} code={body.get('code')} {body.get('message')}")
+        return body.get("data")
+    raise RuntimeError(str(last))
+
+
+def _soso_etf_list(asset_name):
+    """Ticker degli ETF spot USA per l'asset (cache 7 giorni: la lista cambia di rado)."""
     try:
-        return float(node["value"])
+        with open(_SOSO_ETF_LIST_PATH) as f:
+            cache = json.load(f)
+    except Exception:
+        cache = {}
+    ent = cache.get(asset_name)
+    if ent and time.time() - ent.get("_ts", 0) < _SOSO_ETF_LIST_TTL:
+        return ent["tickers"]
+    data = _soso_get("/etfs", {"symbol": asset_name, "country_code": "US"}) or []
+    tickers = [e["ticker"] for e in data if e.get("ticker")]
+    if tickers:
+        cache[asset_name] = {"_ts": time.time(), "tickers": tickers}
+        try:
+            os.makedirs(os.path.dirname(_SOSO_ETF_LIST_PATH), exist_ok=True)
+            with open(_SOSO_ETF_LIST_PATH, "w") as f:
+                json.dump(cache, f)
+        except Exception:
+            pass
+    return tickers
+
+
+def _num_or_none(v):
+    try:
+        return None if v in (None, "") else float(v)
     except (TypeError, ValueError):
         return None
 
 
 def _fetch_sosovalue(asset_name):
-    """Flussi ETF da SoSoValue. Ritorna None (→ fallback farside) se la giornata non è chiusa,
-    se il dato è troppo vecchio o se l'API non risponde: mai un numero parziale."""
+    """Flussi ETF da SoSoValue (API con chiave). Ritorna None (→ fallback farside) se manca la
+    chiave, se il dato è troppo vecchio o se l'API non risponde: mai un numero parziale."""
     cached, is_stale = _load_farside_cache(f"soso_{asset_name}")
     if cached and not is_stale:
         return cached
-    asset_type = _SOSOVALUE_TYPES.get(asset_name)
-    if not asset_type:
-        return None
-    # Retry con backoff: questa macchina ha blip DNS occasionali (già visti su github.com);
-    # senza retry si ripiegherebbe su farside proprio nella finestra in cui è ancora parziale.
-    last_err = None
-    for attempt in range(3):
-        if attempt:
-            time.sleep(3 * attempt)
-        try:
-            r = requests.post(_SOSOVALUE_URL, json={"type": asset_type},
-                              headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"}, timeout=15)
-            r.raise_for_status()
-            break
-        except Exception as e:
-            last_err = e
-    else:
-        print(f"[Crypto] SoSoValue {asset_name} non disponibile ({last_err}) → farside")
+    if not _soso_key():
         return None
     try:
-        data  = (r.json() or {}).get("data") or {}
-        daily = data.get("dailyNetInflow") or {}
-        total = _soso_value(daily)
-        if total is None:
-            print(f"[Crypto] SoSoValue {asset_name}: giornata non ancora chiusa "
-                  f"(status={daily.get('status')}, {daily.get('lastUpdateDate')}) → farside")
+        rows = _soso_get("/etfs/summary-history",
+                         {"symbol": asset_name, "country_code": "US", "limit": 5}) or []
+        row = next((x for x in rows if _num_or_none(x.get("total_net_inflow")) is not None), None)
+        if not row:
+            print(f"[Crypto] SoSoValue {asset_name}: nessuna giornata chiusa → farside")
             return None
-
-        day = datetime.strptime(str(daily.get("lastUpdateDate"))[:10], "%Y-%m-%d").date()
+        day = datetime.strptime(str(row["date"])[:10], "%Y-%m-%d").date()
         if (datetime.now().date() - day).days > _SOSOVALUE_MAX_STALE:
             print(f"[Crypto] SoSoValue {asset_name}: dato fermo al {day} → farside")
             return None
+        total = _num_or_none(row.get("total_net_inflow"))
+        cum   = _num_or_none(row.get("cum_net_inflow"))
+        nav   = _num_or_none(row.get("total_net_assets"))
 
+        # Dettaglio per fondo (stesso giorno del totale). Se fallisce, il totale resta valido.
         by_etf = {}
-        for e in data.get("list") or []:
-            v = _soso_value(e.get("dailyNetInflow"))
-            if e.get("ticker") and v is not None:
-                by_etf[e["ticker"]] = v / 1e6
+        try:
+            ds = day.strftime("%Y-%m-%d")
+            for tk in _soso_etf_list(asset_name):
+                hist = _soso_get(f"/etfs/{tk}/history", {"start_date": ds, "end_date": ds}) or []
+                v = next((_num_or_none(h.get("net_inflow")) for h in hist
+                          if str(h.get("date"))[:10] == ds), None)
+                if v is not None:
+                    by_etf[tk] = v / 1e6
+        except Exception as e:
+            print(f"[Crypto] SoSoValue {asset_name}: dettaglio per fondo incompleto ({e})")
+            by_etf = {}
 
         total_m = total / 1e6
-        cum     = _soso_value(data.get("cumNetInflow"))
-        nav     = _soso_value(data.get("totalNetAssets"))
         result = {
             "last_date": day.strftime("%d %b %Y"),
             "daily_total_m": total_m,
-            "daily_total_fmt": (fmt_large(total_m * 1e6) if abs(total_m) >= 1
-                                else f"{'-' if total_m < 0 else ''}${abs(total_m):.1f}M"),
+            "daily_total_fmt": _fmt_flow_m(total_m),
             "daily_total_raw": total_m * 1e6,
             "by_etf": by_etf,
             "cumulative_total_m": cum / 1e6 if cum is not None else None,
@@ -246,7 +317,7 @@ def _fetch_sosovalue(asset_name):
             "source": f"SoSoValue — {asset_name} ETF Flows",
         }
         print(f"[Crypto] SoSoValue {asset_name}: {result['daily_total_fmt']} ({result['last_date']}, "
-              f"{len(by_etf)} ETF, update completed)")
+              f"{len(by_etf)} ETF, giornata chiusa)")
         _save_farside_cache(f"soso_{asset_name}", result)
         return result
     except Exception as e:
@@ -355,8 +426,7 @@ def _fetch_farside(url, asset_name):
                 # farside dà i flussi in MILIONI arrotondati a 0.1M. Per i flussi <$1M (es. SOL)
                 # mostrare "$200,000" è falsa precisione (in realtà è ~$0.15-0.2M): sotto $1M
                 # mostriamo "$0.2M" (precisione reale della fonte); ≥$1M invariato (BTC/ETH).
-                "daily_total_fmt": (fmt_large(daily_total * 1e6) if abs(daily_total) >= 1
-                                    else f"{'-' if daily_total < 0 else ''}${abs(daily_total):.1f}M"),
+                "daily_total_fmt": _fmt_flow_m(daily_total),
                 "daily_total_raw": daily_total * 1e6,
                 "by_etf": by_etf,
                 "cumulative_total_m": cum_total,

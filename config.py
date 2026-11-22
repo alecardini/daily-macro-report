@@ -49,6 +49,11 @@ GEMINI_MODEL   = "gemini-3.6-flash"   # free tier (i 3.x/2.5 -pro hanno RPD 0). 
 # → backstop quasi sempre up. Id verificati via ListModels API (09/07/2026).
 GEMINI_MODEL_FALLBACKS = ["gemini-2.5-flash", "gemini-3.1-flash-lite"]
 
+# --- SOSOVALUE API (flussi ETF spot BTC/ETH/SOL, fonte primaria; fallback farside) ---
+# Chiave gratuita da https://sosovalue.com/developer/dashboard ("Apply your Key", approvazione manuale).
+# Limiti per chiave: 100 req/min, 10.000 req/mese (letti dagli header X-RateLimit-*). Senza chiave → farside.
+SOSOVALUE_API_KEY = "YOUR_SOSOVALUE_API_KEY_HERE"
+
 # =============================================================================
 # CHIAVI PRIVATE — caricate da config_local.py (git-ignored, NON su GitHub).
 # I segnaposto qui sopra vengono sovrascritti dai valori reali. Su un clone senza
