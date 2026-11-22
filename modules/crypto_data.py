@@ -2,13 +2,12 @@
 Crypto Data Module
 
 - BTC, ETH, SOL: prezzi + variazioni (CoinGecko)
-- ETF flows BTC/ETH/SOL: SoSoValue (con flag di completezza) → fallback farside.co.uk; yfinance per l'AUM dei singoli fondi
+- ETF flows BTC/ETH/SOL: SoSoValue (API con chiave, giornata chiusa + dettaglio per fondo) → fallback farside.co.uk
 - Liquidazioni: CoinGlass API
 - Crypto Fear & Greed: alternative.me (API pubblica)
 """
 
 import requests
-import yfinance as yf
 from bs4 import BeautifulSoup
 import sys, os, json, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -444,163 +443,35 @@ def _fetch_farside(url, asset_name):
     return None
 
 
-def get_btc_etf_flows():
-    """BTC spot ETF flows (SoSoValue → farside) + AUM dei singoli ETF da yfinance."""
-    print("[Crypto] Fetching BTC ETF flows (SoSoValue, fallback farside)...")
-    farside = _fetch_etf_flows("BTC", "https://farside.co.uk/bitcoin-etf-flow-all-data/")
-
-    # AUM dai principali ETF BTC via yfinance
-    btc_etfs = {
-        "IBIT": "iShares Bitcoin Trust",
-        "FBTC": "Fidelity Wise Origin Bitcoin",
-        "GBTC": "Grayscale Bitcoin Trust",
-        "ARKB": "ARK 21Shares Bitcoin ETF",
-        "BITB": "Bitwise Bitcoin ETF",
-    }
-    etf_aum = {}
-    total_aum = 0
-    for sym, name in btc_etfs.items():
-        try:
-            t = yf.Ticker(sym)
-            aum = t.info.get("totalAssets")
-            price = getattr(t.fast_info, "last_price", None)
-            prev = getattr(t.fast_info, "previous_close", None)
-            pct = ((price - prev) / prev * 100) if price and prev and prev > 0 else None
-            if aum:
-                total_aum += aum
-            etf_aum[sym] = {
-                "name": name,
-                "aum": fmt_large(aum) if aum else "N/A",
-                "price_fmt": f"${price:.2f}" if price else "N/A",
-                "pct_fmt": f"{'+' if (pct or 0) >= 0 else ''}{pct:.2f}%" if pct is not None else "N/A",
-                "direction": "up" if (pct or 0) > 0 else "down" if (pct or 0) < 0 else "neutral",
-            }
-        except Exception:
-            etf_aum[sym] = {"name": name, "aum": "N/A", "price_fmt": "N/A", "pct_fmt": "N/A"}
-
-    result = {
-        "farside": farside,
-        "etf_aum": etf_aum,
-        "total_aum": fmt_large(total_aum) if total_aum else "N/A",
-        "source": "SoSoValue / farside.co.uk + Yahoo Finance",
-        "url": "https://farside.co.uk/bitcoin-etf-flow-all-data/",
-    }
-
-    if farside:
-        result["total_inflow_raw"] = farside["daily_total_raw"]
-        result["total_inflow_24h"] = farside["daily_total_fmt"]
-        result["total_direction"] = farside["direction"]
-
+def _etf_flows_result(asset_name, farside_url):
+    """Riquadro flussi ETF spot (SoSoValue → farside). 22/11/2026: rimosso il giro su Yahoo
+    (AUM/prezzo di 18 fondi): nessuna parte del report lo mostrava, costava ~36 richieste a
+    run e CETH non esiste più su Yahoo. Gli asset totali arrivano già da SoSoValue."""
+    print(f"[Crypto] Fetching {asset_name} ETF flows (SoSoValue, fallback farside)...")
+    flows = _fetch_etf_flows(asset_name, farside_url)
+    result = {"farside": flows, "source": "SoSoValue / farside.co.uk", "url": farside_url}
+    if flows:
+        result["total_inflow_raw"] = flows["daily_total_raw"]
+        result["total_inflow_24h"] = flows["daily_total_fmt"]
+        result["total_direction"] = flows["direction"]
     return result
+
+
+def get_btc_etf_flows():
+    return _etf_flows_result("BTC", "https://farside.co.uk/bitcoin-etf-flow-all-data/")
 
 
 def get_eth_etf_flows():
-    """ETH spot ETF flows (SoSoValue → farside)."""
-    print("[Crypto] Fetching ETH ETF flows (SoSoValue, fallback farside)...")
-    farside = _fetch_etf_flows("ETH", "https://farside.co.uk/ethereum-etf-flow-all-data/")
-
-    eth_etfs = {
-        "ETHA": "iShares Ethereum Trust",
-        "FETH": "Fidelity Ethereum Fund",
-        "ETHW": "Bitwise Ethereum ETF",
-        "CETH": "21Shares Core Ethereum ETF",
-        "ETHU": "ProShares Ethereum ETF",
-    }
-    etf_aum = {}
-    total_aum = 0
-    for sym, name in eth_etfs.items():
-        try:
-            t = yf.Ticker(sym)
-            aum = t.info.get("totalAssets")
-            price = getattr(t.fast_info, "last_price", None)
-            prev = getattr(t.fast_info, "previous_close", None)
-            pct = ((price - prev) / prev * 100) if price and prev and prev > 0 else None
-            if aum:
-                total_aum += aum
-            etf_aum[sym] = {
-                "name": name,
-                "aum": fmt_large(aum) if aum else "N/A",
-                "price_fmt": f"${price:.2f}" if price else "N/A",
-                "pct_fmt": f"{'+' if (pct or 0) >= 0 else ''}{pct:.2f}%" if pct is not None else "N/A",
-                "direction": "up" if (pct or 0) > 0 else "down" if (pct or 0) < 0 else "neutral",
-            }
-        except Exception:
-            etf_aum[sym] = {"name": name, "aum": "N/A", "price_fmt": "N/A", "pct_fmt": "N/A"}
-
-    result = {
-        "farside": farside,
-        "etf_aum": etf_aum,
-        "total_aum": fmt_large(total_aum) if total_aum else "N/A",
-        "source": "SoSoValue / farside.co.uk + Yahoo Finance",
-        "url": "https://farside.co.uk/ethereum-etf-flow-all-data/",
-    }
-    if farside:
-        result["total_inflow_raw"] = farside["daily_total_raw"]
-        result["total_inflow_24h"] = farside["daily_total_fmt"]
-        result["total_direction"] = farside["direction"]
-
-    return result
+    return _etf_flows_result("ETH", "https://farside.co.uk/ethereum-etf-flow-all-data/")
 
 
 def get_sol_etf_flows():
-    """
-    SOL spot ETF flows (SoSoValue → farside) + AUM dei singoli ETF da yfinance.
-    ETF approvati: BSOL, GSOL, FSOL, VSOL, SOEZ, QSOL, TSOL, SOLC
-    """
-    print("[Crypto] Fetching SOL ETF flows (SoSoValue, fallback farside)...")
-
     # farside usa /sol/ per Solana (URL diverso da BTC/ETH)
-    farside = _fetch_etf_flows("SOL", "https://farside.co.uk/sol/")
-
-    sol_etfs = {
-        "BSOL": "Bitwise Solana ETF",
-        "GSOL": "Grayscale Solana Trust",
-        "FSOL": "Fidelity Solana ETF",
-        "VSOL": "VanEck Solana ETF",
-        "SOEZ": "Franklin Solana ETF",
-        "QSOL": "Invesco Solana ETF",
-        "TSOL": "21Shares Solana ETF",
-        "SOLC": "Canary Solana ETF",
-    }
-    etf_aum = {}
-    total_aum = 0
-    for sym, name in sol_etfs.items():
-        try:
-            t = yf.Ticker(sym)
-            aum = t.info.get("totalAssets")
-            price = getattr(t.fast_info, "last_price", None)
-            prev = getattr(t.fast_info, "previous_close", None)
-            pct = ((price - prev) / prev * 100) if price and prev and prev > 0 else None
-            if aum:
-                total_aum += aum
-            etf_aum[sym] = {
-                "name": name,
-                "aum": fmt_large(aum) if aum else "N/A",
-                "price_fmt": f"${price:.2f}" if price else "N/A",
-                "pct_fmt": f"{'+' if (pct or 0) >= 0 else ''}{pct:.2f}%" if pct is not None else "N/A",
-                "direction": "up" if (pct or 0) > 0 else "down" if (pct or 0) < 0 else "neutral",
-            }
-        except Exception:
-            etf_aum[sym] = {"name": name, "aum": "N/A", "price_fmt": "N/A", "pct_fmt": "N/A"}
-
-    result = {
-        "farside": farside,
-        "etf_aum": etf_aum,
-        "total_aum": fmt_large(total_aum) if total_aum else "N/A",
-        "source": "SoSoValue / farside.co.uk + Yahoo Finance",
-        "url": "https://farside.co.uk/sol/",
-    }
-    if farside:
-        result["total_inflow_raw"] = farside["daily_total_raw"]
-        result["total_inflow_24h"] = farside["daily_total_fmt"]
-        result["total_direction"] = farside["direction"]
-    else:
+    r = _etf_flows_result("SOL", "https://farside.co.uk/sol/")
+    if not r["farside"]:
         # Fallback: tutto zero (SOL ETF ancora piccoli, flows spesso $0)
-        result["total_inflow_raw"] = 0
-        result["total_inflow_24h"] = "$0.00M"
-        result["total_direction"] = "neutral"
-
-    return result
+        r.update(total_inflow_raw=0, total_inflow_24h="$0.00M", total_direction="neutral")
+    return r
 
 
 # ─────────────────────────────────────────────────────────────
